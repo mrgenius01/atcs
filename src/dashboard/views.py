@@ -119,38 +119,57 @@ def anpr_page(request):
 @login_required 
 @require_POST
 def anpr_process_api(request):
-    """API endpoint for processing ANPR images"""
+    """API endpoint for processing ANPR images with real OpenCV detection"""
     try:
-        if 'image' not in request.FILES:
+        data = json.loads(request.body)
+        image_data = data.get('image')
+        
+        if not image_data:
             return JsonResponse({'error': 'No image provided'}, status=400)
         
-        image_file = request.FILES['image']
+        # Process the image using real OpenCV ANPR
+        from anpr.lightweight_processor import process_plate_image, validate_international_plate
         
-        # Simulate ANPR processing
-        from anpr.lightweight_processor import process_plate_image
+        result = process_plate_image(image_data)
         
-        # Convert uploaded file to bytes
-        image_bytes = image_file.read()
-        
-        # Process the image
-        result = process_plate_image(image_bytes)
-        
-        if result.get('success'):
+        if result.get('success') and result.get('plate_number'):
+            # Validate the detected plate format
+            validation = validate_international_plate(result['plate_number'])
+            
             # Store result in database
             from .models import ANPRResult
             anpr_result = ANPRResult.objects.create(
-                image_path=f"uploads/{image_file.name}",
-                detected_plate=result.get('detected_text', ''),
-                confidence=result.get('validation', {}).get('confidence', 0.0),
+                image_path="uploads/processed_image",  # In production, save actual file
+                detected_plate=result['plate_number'],
+                confidence=result.get('confidence', 0.0),
                 processing_time=result.get('processing_time', 0.0)
             )
             
-            return JsonResponse(result)
-        else:
-            return JsonResponse(result, status=400)
+            # Return comprehensive result
+            response_data = {
+                'success': True,
+                'plate_number': result['plate_number'],
+                'confidence': result.get('confidence', 0.0),
+                'processing_time': result.get('processing_time', 0.0),
+                'message': result.get('message', ''),
+                'validation': validation,
+                'detection_region': result.get('detection_region'),
+                'id': anpr_result.id
+            }
             
+            return JsonResponse(response_data)
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': result.get('error', 'Detection failed'),
+                'message': result.get('message', 'No license plate detected'),
+                'confidence': 0.0
+            }, status=400)
+            
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON data'}, status=400)
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({'error': f'Processing error: {str(e)}'}, status=500)
 
 
 @login_required

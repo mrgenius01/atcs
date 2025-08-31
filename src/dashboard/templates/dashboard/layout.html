@@ -1,18 +1,62 @@
 <!doctype html>
-<html>
+<html lang="en" class="h-full bg-gray-50">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Secure ATCS</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <title>{% block title %}Secure ATCS{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'atcs-blue': '#1e40af',
+            'atcs-green': '#059669',
+            'atcs-red': '#dc2626',
+          }
+        }
+      }
+    }
+  </script>
 </head>
-<body>
-  <nav>
-    <a href="/">Dashboard</a>
-    <a href="/logout/">Logout</a>
-  </nav>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+<body class="h-full bg-gray-50">
+  <div class="min-h-full">
+    <!-- Navigation -->
+    <nav class="bg-atcs-blue shadow-lg">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between h-16">
+          <div class="flex items-center">
+            <div class="flex-shrink-0">
+              <h1 class="text-xl font-bold text-white">🚗 Secure ATCS</h1>
+            </div>
+            <div class="hidden md:block ml-10">
+              <div class="flex items-baseline space-x-4">
+                <a href="/" class="text-white hover:bg-blue-700 px-3 py-2 rounded-md text-sm font-medium">
+                  Dashboard
+                </a>
+                <a href="/admin/" class="text-blue-200 hover:bg-blue-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
+                  Admin
+                </a>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center">
+            <div class="flex-shrink-0">
+              <a href="/logout/" class="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium transition duration-150">
+                Logout
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Page content -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div class="px-4 py-6 sm:px-0">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
 </body>
 </html>

@@ -50,22 +50,23 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "wsgi.application"
 
-# Database
-_db_url = os.getenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/secure_atcs")
-_db = urlparse(_db_url)
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": _db.path.lstrip("/"),
-        "USER": _db.username,
-        "PASSWORD": _db.password,
-        "HOST": _db.hostname,
-        "PORT": _db.port or "5432",
+# Database - Default to SQLite for MVP simplicity
+if os.getenv("USE_POSTGRES") == "True":
+    # PostgreSQL configuration (when explicitly requested)
+    _db_url = os.getenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/secure_atcs")
+    _db = urlparse(_db_url)
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": _db.path.lstrip("/"),
+            "USER": _db.username,
+            "PASSWORD": _db.password,
+            "HOST": _db.hostname,
+            "PORT": _db.port or "5432",
+        }
     }
-}
-
-# Prefer SQLite for tests or when explicitly requested
-if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("USE_SQLITE", "False") == "True":
+else:
+    # SQLite configuration (default for MVP)
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",

@@ -77,19 +77,23 @@
             </div>
           </div>
 
+          {% if require_totp %}
           <div>
             <label for="token" class="block text-sm font-medium text-gray-700">
-              TOTP Token
+              TOTP Authentication Code
             </label>
             <div class="mt-1">
               <input id="token" name="token" type="text" maxlength="6" required 
                      class="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-atcs-blue focus:border-atcs-blue sm:text-sm"
-                     placeholder="6-digit code (e.g., 123456)">
+                     placeholder="Enter 6-digit code">
             </div>
             <p class="mt-1 text-xs text-gray-500">
-              For demo: use any 6-digit code like <code class="bg-gray-100 px-1 rounded">123456</code>
+              Enter the 6-digit code from your authenticator app (Google Authenticator, Authy, etc.)
             </p>
           </div>
+          {% else %}
+          <input type="hidden" name="token" value="">
+          {% endif %}
 
           <div>
             <button type="submit" 
@@ -111,7 +115,13 @@
             <div class="text-sm text-blue-700 space-y-1">
               <div><strong>Username:</strong> admin</div>
               <div><strong>Password:</strong> admin123</div>
-              <div><strong>TOTP:</strong> 123456 (any 6 digits)</div>
+              {% if not require_totp %}
+              <div class="text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2 mt-2">
+                <strong>First login:</strong> TOTP setup will be required after login
+              </div>
+              {% else %}
+              <div><strong>TOTP:</strong> Use your authenticator app</div>
+              {% endif %}
             </div>
           </div>
         </div>

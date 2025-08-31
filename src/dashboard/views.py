@@ -6,7 +6,7 @@ from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 import json
 from .models import Transaction
-from security.auth import verify_totp, get_qr_code
+from security.auth import verify_totp, get_qr_code, get_or_create_profile
 from payments.transactions import process_payment
 from anpr.detector import detect_and_recognize_plate
 
@@ -39,10 +39,49 @@ def transactions_api(request):
 
 @login_required
 def totp_setup(request):
-    """TOTP setup page with QR code"""
-    qr_code = get_qr_code(request.user)
+    """TOTP setup page with QR code and verification"""
+    profile = get_or_create_profile(request.user)
+    
+    if request.method == "POST":
+        action = request.POST.get("action")
+        
+        if action == "enable":
+            # User wants to enable TOTP - verify token first
+            token = request.POST.get("token")
+            if token and profile.verify_totp(token):
+                profile.totp_enabled = True
+                profile.save()
+                return render(request, "dashboard/totp_setup.html", {
+                    'qr_code': profile.get_qr_code(),
+                    'totp_uri': profile.get_totp_uri(),
+                    'success': 'TOTP authentication has been successfully enabled!',
+                    'is_enabled': True
+                })
+            else:
+                return render(request, "dashboard/totp_setup.html", {
+                    'qr_code': profile.get_qr_code(),
+                    'totp_uri': profile.get_totp_uri(),
+                    'error': 'Invalid TOTP code. Please try again.',
+                    'is_enabled': False
+                })
+        
+        elif action == "disable":
+            # User wants to disable TOTP
+            profile.totp_enabled = False
+            profile.save()
+            return render(request, "dashboard/totp_setup.html", {
+                'qr_code': profile.get_qr_code(),
+                'totp_uri': profile.get_totp_uri(),
+                'success': 'TOTP authentication has been disabled.',
+                'is_enabled': False
+            })
+    
+    # GET request - show setup page
     return render(request, "dashboard/totp_setup.html", {
-        'qr_code': qr_code
+        'qr_code': profile.get_qr_code(),
+        'totp_uri': profile.get_totp_uri(),
+        'is_enabled': profile.totp_enabled,
+        'is_first_setup': not profile.totp_enabled
     })
 
 
@@ -95,13 +134,32 @@ def login_view(request):
         username = request.POST.get("username")
         password = request.POST.get("password")
         token = request.POST.get("token")
+        
+        # First authenticate username and password
         user = authenticate(request, username=username, password=password)
         if user is not None:
-            # Perform TOTP check
-            if verify_totp(user, token):
+            # Check if user has TOTP enabled
+            profile = get_or_create_profile(user)
+            
+            if not profile.totp_enabled:
+                # TOTP not set up yet, log them in and redirect to setup
                 login(request, user)
-                return redirect("home")
-        return render(request, "dashboard/login.html", {"error": "Invalid credentials or token."})
+                return redirect("totp_setup")
+            else:
+                # TOTP is enabled, verify the token
+                if token and verify_totp(user, token):
+                    login(request, user)
+                    return redirect("home")
+                else:
+                    return render(request, "dashboard/login.html", {
+                        "error": "Invalid TOTP code. Please check your authenticator app.",
+                        "require_totp": True
+                    })
+        else:
+            return render(request, "dashboard/login.html", {
+                "error": "Invalid username or password."
+            })
+    
     return render(request, "dashboard/login.html")
 
 
@@ -193,15 +251,4 @@ def anpr_results_api(request):
     return JsonResponse(data)
 
 
-@login_required
-@require_POST  
-def totp_disable(request):
-    """Disable TOTP for user"""
-    try:
-        profile = request.user.userprofile
-        profile.totp_enabled = False
-        profile.totp_secret = ""
-        profile.save()
-        return redirect('totp_setup')
-    except:
-        return redirect('totp_setup')
+

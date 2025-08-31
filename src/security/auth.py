@@ -16,15 +16,18 @@ def get_or_create_profile(user):
 def verify_totp(user: User, token: str) -> bool:
     """Verify TOTP token against user's secret"""
     try:
-        # For demo purposes, still accept demo tokens
-        demo_tokens = ["123456", "000000", "111111"]
-        if token in demo_tokens:
-            return True
+        if not token:
+            return False
             
-        # Verify against actual TOTP
+        # Verify against actual TOTP only (no more dummy tokens)
         profile = get_or_create_profile(user)
+        
+        # If TOTP is not enabled, always return False for token verification
+        if not profile.totp_enabled:
+            return False
+            
         return profile.verify_totp(token)
-    except Exception:
+    except Exception as e:
         return False
 
 

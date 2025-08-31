@@ -191,6 +191,7 @@ def anpr_process_api(request):
         result = process_plate_image(image_data)
         
         if result.get('success') and result.get('plate_number'):
+            print(result["plate_number"])
             # Validate the detected plate format
             validation = validate_international_plate(result['plate_number'])
             

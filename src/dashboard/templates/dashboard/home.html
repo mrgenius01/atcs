@@ -1,0 +1,11 @@
+{% extends "dashboard/layout.html" %}
+{% block content %}
+<h1>Secure ATCS</h1>
+<p>Live Transactions</p>
+<div id="tx"></div>
+<script>
+fetch('/api/transactions/').then(r=>r.json()).then(d=>{
+  document.getElementById('tx').innerText = JSON.stringify(d.transactions, null, 2);
+});
+</script>
+{% endblock %}

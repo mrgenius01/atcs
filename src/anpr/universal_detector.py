@@ -22,26 +22,35 @@ class UniversalPlateDetector:
     def detect_by_contours(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """Enhanced contour-based detection"""
         try:
+            print("🔍 UNIVERSAL: Strategy 1 - Contour-based detection")
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+            print(f"✓ UNIVERSAL: Converted to grayscale, shape: {gray.shape}")
             
             # Multiple edge detection approaches
             edges1 = cv2.Canny(gray, 50, 200)
             edges2 = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 30, 150)
             edges = cv2.bitwise_or(edges1, edges2)
+            edge_pixels = np.count_nonzero(edges)
+            print(f"✓ UNIVERSAL: Combined edge detection, {edge_pixels} edge pixels")
             
             # Find contours
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            print(f"✓ UNIVERSAL: Found {len(contours)} contours")
             
             candidates = []
             h, w = gray.shape
+            analyzed_contours = 0
             
             for contour in contours:
                 area = cv2.contourArea(contour)
                 if area < 500:  # Skip small areas
                     continue
                 
+                analyzed_contours += 1
                 x, y, cw, ch = cv2.boundingRect(contour)
                 aspect_ratio = cw / ch
+                
+                print(f"  Contour {analyzed_contours}: area={area:.0f}, bbox=({x},{y},{cw},{ch}), aspect={aspect_ratio:.2f}")
                 
                 # License plates worldwide typically have these characteristics:
                 # - Aspect ratio between 2:1 and 6:1

@@ -34,32 +34,47 @@ def detect_plate_regions_contour(image: np.ndarray) -> List[Tuple[int, int, int,
     Returns list of (x, y, width, height) bounding boxes
     """
     try:
+        print(f"🔍 CONTOUR DETECTION: Starting contour analysis on image {image.shape}")
+        
         # Convert to grayscale if needed
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            print(f"✓ CONTOUR: Converted BGR to grayscale")
         else:
             gray = image.copy()
+            print(f"✓ CONTOUR: Image already grayscale")
         
         # Apply bilateral filter to reduce noise while preserving edges
         filtered = cv2.bilateralFilter(gray, 11, 17, 17)
+        print(f"✓ CONTOUR: Applied bilateral filter")
         
         # Find edges using Canny
         edges = cv2.Canny(filtered, 30, 200)
+        edge_count = np.count_nonzero(edges)
+        print(f"✓ CONTOUR: Canny edge detection found {edge_count} edge pixels")
         
         # Find contours
         contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        print(f"✓ CONTOUR: Found {len(contours)} total contours")
         
         plate_candidates = []
+        filtered_contours = 0
         
-        for contour in contours:
+        print(f"🔍 CONTOUR: Analyzing {len(contours)} contours for plate characteristics...")
+        
+        for i, contour in enumerate(contours):
             # Calculate contour area and bounding rectangle
             area = cv2.contourArea(contour)
             if area < 500:  # Skip very small contours
                 continue
-                
+            
+            filtered_contours += 1
+            
             # Get bounding rectangle
             x, y, w, h = cv2.boundingRect(contour)
             aspect_ratio = w / h
+            
+            print(f"  Contour {i+1}: area={area:.0f}, bbox=({x},{y},{w},{h}), aspect={aspect_ratio:.2f}")
             
             # License plates typically have aspect ratio between 2:1 and 6:1
             if 2.0 <= aspect_ratio <= 6.0 and area > 800:
@@ -71,17 +86,37 @@ def detect_plate_regions_contour(image: np.ndarray) -> List[Tuple[int, int, int,
                 epsilon = 0.02 * cv2.arcLength(contour, True)
                 approx = cv2.approxPolyDP(contour, epsilon, True)
                 
+                print(f"    ✓ Good aspect ratio! extent={extent:.2f}, corners={len(approx)}")
+                
                 # Additional validation
                 if (extent > 0.4 and  # Reasonable fill ratio
                     len(approx) >= 4 and  # At least 4 corners
                     w > 80 and h > 20 and  # Minimum size
                     w < gray.shape[1] * 0.9 and h < gray.shape[0] * 0.3):  # Maximum size
                     
+                    print(f"    🎯 PLATE CANDIDATE: Adding to candidates list!")
                     plate_candidates.append((x, y, w, h, area))
+                else:
+                    reason = []
+                    if extent <= 0.4: reason.append(f"low extent ({extent:.2f})")
+                    if len(approx) < 4: reason.append(f"not rectangular ({len(approx)} corners)")
+                    if w <= 80 or h <= 20: reason.append(f"too small ({w}x{h})")
+                    if w >= gray.shape[1] * 0.9 or h >= gray.shape[0] * 0.3: reason.append(f"too large ({w}x{h})")
+                    print(f"    ❌ Rejected: {', '.join(reason)}")
+            else:
+                reason = "bad aspect ratio" if not (2.0 <= aspect_ratio <= 6.0) else "too small area"
+                print(f"    ❌ Rejected: {reason}")
+        
+        print(f"✓ CONTOUR: Processed {filtered_contours} contours above size threshold")
+        print(f"🎯 CONTOUR: Found {len(plate_candidates)} plate candidates")
         
         # Sort by area (largest first) and return top candidates
         plate_candidates.sort(key=lambda x: x[4], reverse=True)
-        return [(x, y, w, h) for x, y, w, h, _ in plate_candidates[:5]]
+        
+        final_candidates = [(x, y, w, h) for x, y, w, h, _ in plate_candidates[:5]]
+        print(f"📋 CONTOUR: Returning top {len(final_candidates)} candidates: {final_candidates}")
+        
+        return final_candidates
         
     except Exception as e:
         logger.error(f"Error in contour-based detection: {e}")
@@ -92,16 +127,24 @@ def detect_plate_regions_cascade(detector: LicensePlateDetector, image: np.ndarr
     Detect license plates using Haar cascade classifier
     """
     try:
+        print(f"🔍 CASCADE DETECTION: Starting cascade analysis on image {image.shape}")
+        
         if detector.plate_cascade is None:
+            print("❌ CASCADE: No cascade classifier loaded")
             return []
+        
+        print("✓ CASCADE: Cascade classifier available")
         
         # Convert to grayscale if needed
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            print("✓ CASCADE: Converted to grayscale")
         else:
             gray = image.copy()
+            print("✓ CASCADE: Image already grayscale")
         
         # Detect plates using cascade
+        print("🔍 CASCADE: Running detectMultiScale...")
         plates = detector.plate_cascade.detectMultiScale(
             gray,
             scaleFactor=1.1,
@@ -109,6 +152,12 @@ def detect_plate_regions_cascade(detector: LicensePlateDetector, image: np.ndarr
             minSize=(80, 20),
             maxSize=(400, 100)
         )
+        
+        print(f"✓ CASCADE: Detection complete, found {len(plates)} plates")
+        
+        if len(plates) > 0:
+            for i, (x, y, w, h) in enumerate(plates):
+                print(f"  Plate {i+1}: bbox=({x},{y},{w},{h}), area={w*h}")
         
         return [(x, y, w, h) for x, y, w, h in plates]
         
@@ -245,20 +294,25 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
             }
         
         logger.info(f"Processing image shape: {original_image.shape}")
+        print(f"🔍 DETECTION: Processing image shape: {original_image.shape}")
         
         # Try universal detection first (enhanced multi-strategy approach)
         regions = universal_detector.detect_plates(original_image)
+        print(f"🔍 DETECTION: Universal detector found {len(regions)} regions")
         
         # Fallback to cascade detection if universal detection fails
         if not regions:
             regions = detect_plate_regions_cascade(detector, original_image)
+            print(f"🔍 DETECTION: Cascade detector found {len(regions)} regions")
         
         # Final fallback to contour detection
         if not regions:
             regions = detect_plate_regions_contour(original_image)
+            print(f"🔍 DETECTION: Contour detector found {len(regions)} regions")
         
         if not regions:
             logger.warning("No plate regions detected by any method")
+            print("❌ DETECTION: No plate regions detected by any method")
             return {
                 'error': 'No license plate detected',
                 'plate': None,
@@ -267,6 +321,7 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
             }
         
         logger.info(f"Found {len(regions)} potential plate regions")
+        print(f"🎯 DETECTION: Found {len(regions)} potential plate regions to analyze")
         
         # Try OCR on each detected region
         best_result = None
@@ -279,6 +334,7 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
                 enhanced_roi = enhance_plate_roi(roi)
                 
                 logger.info(f"Processing region {i+1}: size {w}x{h} at ({x},{y})")
+                print(f"🔍 DETECTION: Processing region {i+1}/{len(regions)}: size {w}x{h} at ({x},{y})")
                 
                 # Perform OCR
                 detected_text = infer_plate_text(ocr_model, (0, 0, enhanced_roi.shape[1], enhanced_roi.shape[0]), enhanced_roi)
@@ -288,6 +344,7 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
                     confidence = estimate_plate_confidence(detected_text, w * h)
                     
                     logger.info(f"Region {i+1}: '{detected_text}' (confidence: {confidence:.2f})")
+                    print(f"✅ DETECTION: Region {i+1} result: '{detected_text}' (confidence: {confidence:.2f})")
                     
                     if confidence > best_confidence:
                         best_result = {
@@ -297,11 +354,14 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
                             'processing_time': time.time() - start_time
                         }
                         best_confidence = confidence
+                        print(f"🏆 DETECTION: New best result: '{detected_text}' (confidence: {confidence:.2f})")
                 else:
                     logger.info(f"Region {i+1}: No text detected")
+                    print(f"❌ DETECTION: Region {i+1}: No text detected")
                         
             except Exception as e:
                 logger.error(f"Error processing region {i+1}: {e}")
+                print(f"💥 DETECTION: Error processing region {i+1}: {e}")
                 continue
         
         if best_result:

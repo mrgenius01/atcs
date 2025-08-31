@@ -225,6 +225,7 @@ def anpr_process_api(request):
             }, status=400)
             
     except json.JSONDecodeError:
+        print("ERROR OF INVALID JSON")
         return JsonResponse({'error': 'Invalid JSON data'}, status=400)
     except Exception as e:
         return JsonResponse({'error': f'Processing error: {str(e)}'}, status=500)

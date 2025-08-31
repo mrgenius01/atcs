@@ -55,28 +55,47 @@ def process_plate_image(image_data: str) -> Dict:
         
         # Try real detection first
         try:
+            print("🚀 STARTING REAL PLATE DETECTION...")
             # Get detector instance
             detector = get_detector()
+            print(f"✓ Detector loaded: {type(detector).__name__}")
             
             # Perform detection and recognition
+            print(f"🔍 Processing image of size: {opencv_image.shape}")
             result = detect_and_recognize_plate(opencv_image, detector)
             
-            if result and result.get('plate') and result.get('confidence', 0) > 0.3:
-                logger.info(f"Real detection successful: {result['plate']}")
-                return {
-                    'success': True,
-                    'plate_number': result['plate'],
-                    'confidence': result.get('confidence', 0.0) * 100,  # Convert to percentage
-                    'processing_time': result.get('processing_time', time.time() - start_time),
-                    'detection_region': result.get('region'),
-                    'message': f"License plate detected: {result['plate']} ({result.get('confidence', 0.0)*100:.1f}% confidence)",
-                    'method': 'opencv_real'
-                }
+            print(f"📊 DETECTION RESULT: {result}")
+            
+            if result and result.get('plate'):
+                confidence = result.get('confidence', 0.0)
+                print(f"🎯 PLATE FOUND: '{result['plate']}' with confidence {confidence:.3f}")
+                
+                # Lower threshold to 0.1 (10%) to catch low-confidence detections
+                if confidence > 0.1:
+                    logger.info(f"Real detection successful: {result['plate']}")
+                    status = "HIGH CONFIDENCE" if confidence > 0.5 else "LOW CONFIDENCE"
+                    print(f"✅ ACCEPTING RESULT: {status}")
+                    return {
+                        'success': True,
+                        'plate_number': result['plate'],
+                        'confidence': confidence * 100,  # Convert to percentage
+                        'processing_time': result.get('processing_time', time.time() - start_time),
+                        'detection_region': result.get('region'),
+                        'message': f"License plate detected: {result['plate']} ({confidence*100:.1f}% confidence)",
+                        'method': 'opencv_real'
+                    }
+                else:
+                    print(f"❌ CONFIDENCE TOO LOW: {confidence:.3f} < 0.1")
             else:
-                logger.warning("Real detection failed, falling back to simulation")
+                print("❌ NO PLATE DETECTED: Result is empty or no plate field")
+                
+            logger.warning("Real detection failed, falling back to simulation")
                 
         except Exception as e:
             logger.warning(f"Real detection error: {e}, falling back to simulation")
+            print(f"💥 DETECTION ERROR: {e}")
+            import traceback
+            print(f"📋 TRACEBACK: {traceback.format_exc()}")
         
         # Fallback to simulation for demo purposes
         import random
@@ -190,7 +209,7 @@ import random
 from typing import Dict
 
 
-def process_plate_image(img_bytes: bytes) -> Dict[str, any]:
+def process_plate_image_simulate(img_bytes: bytes) -> Dict[str, any]:
     """
     Simulate ANPR processing pipeline
     In production, this would use OpenCV + EasyOCR/Tesseract

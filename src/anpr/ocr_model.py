@@ -168,6 +168,7 @@ def infer_plate_text(model: PlateOCRModel, roi_bounds: tuple, image: np.ndarray 
     """Extract text from license plate ROI using real OCR"""
     if not model or not model.loaded:
         logger.error("OCR model not loaded")
+        print("❌ OCR ERROR: Model not loaded")
         return None
     
     try:
@@ -175,8 +176,10 @@ def infer_plate_text(model: PlateOCRModel, roi_bounds: tuple, image: np.ndarray 
         if image is not None and roi_bounds:
             x, y, w, h = roi_bounds
             roi = image[y:y+h, x:x+w]
+            print(f"🔍 OCR DEBUG: Processing ROI {roi_bounds} (size: {w}x{h})")
         else:
             logger.error("No image or ROI bounds provided")
+            print("❌ OCR ERROR: No image or ROI bounds provided")
             return None
         
         # Preprocess the ROI
@@ -187,27 +190,60 @@ def infer_plate_text(model: PlateOCRModel, roi_bounds: tuple, image: np.ndarray 
         
         if not results:
             logger.warning("No text detected in ROI")
+            print("🔍 OCR DEBUG: No text detected by EasyOCR in this ROI")
             return None
+        
+        # Log ALL detected text regardless of confidence or validity
+        print(f"🔍 OCR DEBUG: Found {len(results)} text detections in ROI:")
+        for i, (bbox, text, confidence) in enumerate(results):
+            is_valid, cleaned_text = validate_plate_text(text)
+            validation_status = "✓ VALID" if is_valid else "✗ INVALID"
+            print(f"  [{i+1}] Raw: '{text}' -> Cleaned: '{cleaned_text}' (confidence: {confidence:.2f}) - {validation_status}")
+            print(f"      BBox: {bbox}")
         
         # Find the best candidate text
         best_text = ""
         best_confidence = 0.0
+        best_raw = ""
+        all_candidates = []
         
         for (bbox, text, confidence) in results:
             # Validate if this looks like a license plate
             is_valid, cleaned_text = validate_plate_text(text)
             
-            if is_valid and confidence > best_confidence and confidence > 0.5:
-                best_text = cleaned_text
+            # Store all candidates for debugging
+            all_candidates.append({
+                'raw': text,
+                'cleaned': cleaned_text,
+                'confidence': confidence,
+                'valid': is_valid,
+                'bbox': bbox
+            })
+            
+            # Lower the confidence threshold and consider all text
+            if confidence > best_confidence:
+                best_text = cleaned_text if is_valid else text.upper().strip()
                 best_confidence = confidence
+                best_raw = text
         
-        if best_text and best_confidence > 0.5:
+        # Log all candidates found
+        print(f"🔍 OCR CANDIDATES: Processing {len(all_candidates)} candidates:")
+        for i, candidate in enumerate(all_candidates):
+            status = "✓ VALID PLATE" if candidate['valid'] else "? RAW TEXT"
+            print(f"  [{i+1}] {status}: '{candidate['cleaned']}' (conf: {candidate['confidence']:.3f}) from raw: '{candidate['raw']}'")
+        
+        # Return the best result even if confidence is very low (>0.1)
+        if best_text and best_confidence > 0.1:
+            status = "✓ ACCEPTED" if best_confidence > 0.5 else "⚠ LOW CONFIDENCE"
+            print(f"🎯 OCR RESULT: '{best_text}' (raw: '{best_raw}', confidence: {best_confidence:.2f}) - {status}")
             logger.info(f"Detected plate: {best_text} (confidence: {best_confidence:.2f})")
             return best_text
         else:
-            logger.warning(f"No valid plate detected. Best attempt: {best_text} (confidence: {best_confidence:.2f})")
+            print("❌ OCR RESULT: No text detected in this ROI")
+            logger.warning("No text detected in ROI")
             return None
             
     except Exception as e:
         logger.error(f"Error in OCR inference: {e}")
+        print(f"💥 OCR ERROR: {e}")
         return None

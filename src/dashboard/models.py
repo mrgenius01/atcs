@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
+import uuid
 import pyotp
 import qrcode
 import io
@@ -58,6 +60,49 @@ class UserProfile(models.Model):
 # Transaction model for storing toll transactions
 class Transaction(models.Model):
     STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PROCESSING', 'Processing'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+    
+    PAYMENT_METHOD_CHOICES = [
+        ('ECOCASH', 'EcoCash'),
+        ('ZIPIT', 'ZiPiT'),
+        ('VISA', 'Visa Card'),
+        ('MASTERCARD', 'Mastercard'),
+        ('CASH', 'Cash'),
+    ]
+    
+    transaction_id = models.CharField(max_length=50, unique=True, default=uuid.uuid4)
+    license_plate = models.CharField(max_length=20)
+    toll_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    location = models.CharField(max_length=100, default='Main Toll Plaza')
+    confidence = models.FloatField(help_text="OCR confidence level")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, blank=True, null=True)
+    payment_reference = models.CharField(max_length=100, blank=True, null=True)
+    blockchain_hash = models.CharField(max_length=64, blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        
+    def __str__(self):
+        return f"Transaction {self.transaction_id} - {self.license_plate}"
+    
+    def save(self, *args, **kwargs):
+        if self.status in ['COMPLETED', 'FAILED'] and not self.processed_at:
+            self.processed_at = timezone.now()
+        super().save(*args, **kwargs)
+
+
+# Legacy transaction model - keeping for compatibility
+class Transaction(models.Model):
+    STATUS_CHOICES = [
         ('SUCCESS', 'Success'),
         ('FAILED', 'Failed'),
         ('PENDING', 'Pending'),
@@ -92,14 +137,42 @@ class Transaction(models.Model):
 
 class ANPRResult(models.Model):
     """ANPR processing results model"""
-    image_path = models.CharField(max_length=255, help_text="Path to processed image")
     detected_plate = models.CharField(max_length=20, blank=True, null=True, help_text="Detected license plate number")
-    confidence = models.FloatField(default=0.0, help_text="Detection confidence (0-100)")
+    confidence = models.FloatField(default=0.0, help_text="Detection confidence (0-1)")
+    detection_method = models.CharField(max_length=50, default='opencv_real')
     processing_time = models.FloatField(default=0.0, help_text="Processing time in seconds")
+    image_size = models.CharField(max_length=20, blank=True, null=True)
+    detection_region = models.JSONField(blank=True, null=True, help_text="Bounding box coordinates")
+    transaction = models.ForeignKey(Transaction, on_delete=models.CASCADE, blank=True, null=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         ordering = ['-timestamp']
         
     def __str__(self):
-        return f"ANPR: {self.detected_plate or 'No plate'} ({self.confidence:.1f}%)"
+        return f"ANPR: {self.detected_plate or 'No plate'} ({self.confidence:.1%})"
+
+
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('LOGIN', 'User Login'),
+        ('LOGOUT', 'User Logout'),
+        ('TRANSACTION_CREATE', 'Transaction Created'),
+        ('TRANSACTION_UPDATE', 'Transaction Updated'),
+        ('PAYMENT_PROCESS', 'Payment Processed'),
+        ('ANPR_DETECT', 'ANPR Detection'),
+        ('SYSTEM_ERROR', 'System Error'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    details = models.JSONField(blank=True, null=True)
+    ip_address = models.GenericIPAddressField(blank=True, null=True)
+    user_agent = models.TextField(blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        
+    def __str__(self):
+        return f"{self.action} - {self.user or 'Anonymous'} at {self.timestamp}"

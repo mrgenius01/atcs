@@ -5,7 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 import json
-from .models import Transaction
+from .models import Transaction, ANPRResult, AuditLog
 from security.auth import verify_totp, get_qr_code, get_or_create_profile
 from payments.transactions import process_payment
 from anpr.detector import detect_and_recognize_plate
@@ -248,6 +248,204 @@ def anpr_results_api(request):
                 'timestamp': result.timestamp.isoformat(),
             }
             for result in results
+        ]
+    }
+    return JsonResponse(data)
+
+
+@login_required
+@require_POST
+@csrf_exempt
+def process_vehicle_transaction(request):
+    """Complete vehicle transaction flow after plate detection"""
+    print("=== TRANSACTION PROCESSING STARTED ===")
+    
+    try:
+        # Parse request data
+        data = json.loads(request.body)
+        plate_number = data.get('plate_number')
+        confidence = data.get('confidence', 0.0)
+        location = data.get('location', 'Main Toll Plaza')
+        toll_amount = data.get('toll_amount', 2.50)  # Default toll in USD
+        
+        print(f"Processing transaction for plate: {plate_number}")
+        print(f"Confidence: {confidence}%, Location: {location}, Amount: ${toll_amount}")
+        
+        # Log audit trail
+        AuditLog.objects.create(
+            user=request.user,
+            action='TRANSACTION_CREATE',
+            details={
+                'plate': plate_number,
+                'confidence': confidence,
+                'amount': toll_amount,
+                'location': location
+            },
+            ip_address=request.META.get('REMOTE_ADDR'),
+            user_agent=request.META.get('HTTP_USER_AGENT')
+        )
+        
+        if not plate_number:
+            return JsonResponse({
+                'success': False,
+                'error': 'No plate number provided',
+                'transaction_id': None
+            })
+        
+        # Check if confidence is acceptable
+        min_confidence = 0.7  # 70% minimum confidence
+        if confidence < min_confidence:
+            print(f"Low confidence: {confidence}% < {min_confidence}%")
+            return JsonResponse({
+                'success': False,
+                'error': 'Low confidence detection',
+                'message': f'Plate detection confidence ({confidence:.1f}%) below minimum threshold ({min_confidence*100}%)',
+                'requires_manual_review': True,
+                'plate_number': plate_number,
+                'confidence': confidence
+            })
+        
+        # 1. Create initial transaction record
+        transaction = Transaction.objects.create(
+            license_plate=plate_number,
+            toll_amount=toll_amount,
+            location=location,
+            confidence=confidence,
+            status='PROCESSING'
+        )
+        
+        print(f"Created transaction: {transaction.transaction_id}")
+        
+        # 2. Process payment
+        payment_result = process_payment(
+            plate_number=plate_number,
+            amount=toll_amount,
+            transaction_id=str(transaction.transaction_id)
+        )
+        
+        print(f"Payment result: {payment_result}")
+        
+        # 3. Update transaction status
+        if payment_result['success']:
+            transaction.status = 'COMPLETED'
+            transaction.payment_method = payment_result.get('payment_method', 'ECOCASH')
+            transaction.payment_reference = payment_result.get('reference', '')
+        else:
+            transaction.status = 'FAILED'
+            transaction.error_message = payment_result.get('error', 'Payment failed')
+        
+        transaction.save()
+        
+        # 4. Store blockchain audit trail
+        from blockchain.ledger import store_audit_hash
+        audit_data = {
+            'transaction_id': str(transaction.transaction_id),
+            'plate': plate_number,
+            'amount': str(toll_amount),
+            'status': transaction.status,
+            'timestamp': transaction.timestamp.isoformat()
+        }
+        audit_hash = store_audit_hash(audit_data)
+        transaction.blockchain_hash = audit_hash
+        transaction.save()
+        
+        print(f"Stored blockchain hash: {audit_hash[:16]}...")
+        
+        # 5. Log ANPR result
+        ANPRResult.objects.create(
+            detected_plate=plate_number,
+            confidence=confidence,
+            transaction=transaction,
+            processing_time=payment_result.get('processing_time', 0),
+            detection_method='opencv_real'
+        )
+        
+        # 6. Log audit trail
+        AuditLog.objects.create(
+            user=request.user,
+            action='PAYMENT_PROCESS',
+            details={
+                'transaction_id': str(transaction.transaction_id),
+                'status': transaction.status,
+                'payment_method': transaction.payment_method,
+                'reference': transaction.payment_reference
+            },
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        
+        print("=== TRANSACTION PROCESSING COMPLETED ===")
+        
+        return JsonResponse({
+            'success': payment_result['success'],
+            'transaction_id': str(transaction.transaction_id),
+            'plate_number': plate_number,
+            'amount': float(toll_amount),
+            'status': transaction.status,
+            'payment_method': transaction.payment_method,
+            'payment_reference': transaction.payment_reference,
+            'blockchain_hash': audit_hash,
+            'message': payment_result.get('message', 'Transaction processed successfully'),
+            'balance_remaining': payment_result.get('balance', 0),
+            'processing_time': payment_result.get('processing_time', 0)
+        })
+        
+    except json.JSONDecodeError:
+        print("ERROR: Invalid JSON in request")
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=400)
+    except Exception as e:
+        print(f"ERROR: Transaction processing failed: {str(e)}")
+        AuditLog.objects.create(
+            user=request.user,
+            action='SYSTEM_ERROR',
+            details={'error': str(e), 'endpoint': 'process_vehicle_transaction'},
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        return JsonResponse({
+            'success': False,
+            'error': f'Transaction processing failed: {str(e)}'
+        }, status=500)
+
+
+@login_required
+def transaction_status(request, transaction_id):
+    """Get transaction status"""
+    try:
+        transaction = Transaction.objects.get(transaction_id=transaction_id)
+        return JsonResponse({
+            'transaction_id': str(transaction_id),
+            'status': transaction.status,
+            'plate_number': transaction.license_plate,
+            'amount': float(transaction.toll_amount),
+            'timestamp': transaction.timestamp.isoformat(),
+            'payment_method': transaction.payment_method,
+            'location': transaction.location,
+            'blockchain_hash': transaction.blockchain_hash,
+            'processing_time': (transaction.processed_at - transaction.timestamp).total_seconds() if transaction.processed_at else None
+        })
+    except Transaction.DoesNotExist:
+        return JsonResponse({
+            'error': 'Transaction not found'
+        }, status=404)
+
+
+@login_required
+def recent_transactions(request):
+    """Get recent transactions for dashboard"""
+    transactions = Transaction.objects.all()[:10]
+    data = {
+        'transactions': [
+            {
+                'transaction_id': str(t.transaction_id),
+                'plate_number': t.license_plate,
+                'amount': float(t.toll_amount),
+                'status': t.status,
+                'timestamp': t.timestamp.isoformat(),
+                'location': t.location
+            }
+            for t in transactions
         ]
     }
     return JsonResponse(data)

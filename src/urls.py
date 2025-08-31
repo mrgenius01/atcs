@@ -3,7 +3,8 @@ from django.urls import path
 from dashboard.views import (
     home, login_view, logout_view, transactions_api, 
     totp_setup, process_vehicle,
-    anpr_page, anpr_process_api, anpr_results_api
+    anpr_page, anpr_process_api, anpr_results_api,
+    process_vehicle_transaction, transaction_status, recent_transactions
 )
 
 urlpatterns = [
@@ -17,4 +18,8 @@ urlpatterns = [
     path("api/process-vehicle/", process_vehicle, name="process_vehicle"),
     path("api/anpr/process/", anpr_process_api, name="anpr_process_api"),
     path("api/anpr/results/", anpr_results_api, name="anpr_results_api"),
+    # New transaction flow endpoints
+    path("api/process-vehicle-transaction/", process_vehicle_transaction, name="process_vehicle_transaction"),
+    path("api/transaction-status/<str:transaction_id>/", transaction_status, name="transaction_status"),
+    path("api/recent-transactions/", recent_transactions, name="recent_transactions"),
 ]

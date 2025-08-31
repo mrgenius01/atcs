@@ -159,6 +159,98 @@ document.getElementById('upload-form').addEventListener('submit', async function
   reader.readAsDataURL(imageFile);
 });
 
+function processTransaction(plateData) {
+  console.log('Processing transaction for:', plateData);
+  
+  // Show processing state
+  document.getElementById('results').innerHTML = `
+    <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <svg class="animate-spin h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        <div class="ml-3">
+          <p class="text-sm font-medium text-yellow-800">Processing Transaction...</p>
+          <p class="text-sm text-yellow-700">Validating payment for ${plateData.plate_number}</p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Process transaction
+  fetch('/api/process-vehicle-transaction/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+    },
+    body: JSON.stringify({
+      plate_number: plateData.plate_number,
+      confidence: plateData.confidence / 100, // Convert percentage to decimal
+      toll_amount: 2.50,
+      location: 'Main Toll Plaza'
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log('Transaction result:', data);
+    displayTransactionResult(data);
+  })
+  .catch(error => {
+    console.error('Transaction error:', error);
+    displayTransactionError(error);
+  });
+}
+
+function displayTransactionResult(result) {
+  const statusColor = result.success ? 'green' : 'red';
+  const statusIcon = result.success ? '✓' : '✗';
+  
+  document.getElementById('results').innerHTML = `
+    <div class="bg-${statusColor}-50 border border-${statusColor}-200 rounded-md p-4">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <span class="text-${statusColor}-400 text-xl">${statusIcon}</span>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium text-${statusColor}-800">
+            ${result.success ? 'Transaction Completed' : 'Transaction Failed'}
+          </h3>
+          <div class="mt-2 text-sm text-${statusColor}-700">
+            <p><strong>Plate:</strong> ${result.plate_number}</p>
+            <p><strong>Amount:</strong> $${result.amount}</p>
+            <p><strong>Status:</strong> ${result.status}</p>
+            <p><strong>Transaction ID:</strong> ${result.transaction_id}</p>
+            ${result.payment_method ? `<p><strong>Payment Method:</strong> ${result.payment_method}</p>` : ''}
+            ${result.balance_remaining !== undefined ? `<p><strong>Balance Remaining:</strong> $${result.balance_remaining}</p>` : ''}
+            <p><strong>Blockchain Hash:</strong> ${result.blockchain_hash ? result.blockchain_hash.substring(0, 16) + '...' : 'N/A'}</p>
+          </div>
+          ${result.message ? `<p class="mt-2 text-sm text-${statusColor}-600">${result.message}</p>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function displayTransactionError(error) {
+  document.getElementById('results').innerHTML = `
+    <div class="bg-red-50 border border-red-200 rounded-md p-4">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <span class="text-red-400 text-xl">✗</span>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium text-red-800">Transaction Error</h3>
+          <p class="mt-2 text-sm text-red-600">Failed to process transaction: ${error.message || error}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function formatResults(result) {
   if (result.success) {
     const validation = result.validation || {};
@@ -171,6 +263,11 @@ function formatResults(result) {
       `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
         ${validation.format.replace('_', ' ')}
       </span>` : '';
+    
+    // If confidence is high enough, automatically process transaction
+    if (result.confidence > 70) {
+      setTimeout(() => processTransaction(result), 1500);
+    }
     
     return `
       <div class="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -200,6 +297,10 @@ function formatResults(result) {
                   <span class="font-medium text-green-800">${validation.valid ? 'Valid Format' : 'Unknown Format'}</span>
                 </div>
               </div>
+              ${result.confidence > 70 ? 
+                '<p class="mt-3 text-sm text-green-600">✓ High confidence - Processing transaction automatically...</p>' :
+                '<p class="mt-3 text-sm text-yellow-600">⚠ Low confidence - Manual review required</p>'
+              }
             </div>
           </div>
         </div>

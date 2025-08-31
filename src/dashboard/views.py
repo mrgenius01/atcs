@@ -108,3 +108,81 @@ def login_view(request):
 def logout_view(request):
     logout(request)
     return redirect("login")
+
+
+@login_required
+def anpr_page(request):
+    """ANPR processing page"""
+    return render(request, "dashboard/anpr.html")
+
+
+@login_required 
+@require_POST
+def anpr_process_api(request):
+    """API endpoint for processing ANPR images"""
+    try:
+        if 'image' not in request.FILES:
+            return JsonResponse({'error': 'No image provided'}, status=400)
+        
+        image_file = request.FILES['image']
+        
+        # Simulate ANPR processing
+        from anpr.lightweight_processor import process_plate_image
+        
+        # Convert uploaded file to bytes
+        image_bytes = image_file.read()
+        
+        # Process the image
+        result = process_plate_image(image_bytes)
+        
+        if result.get('success'):
+            # Store result in database
+            from .models import ANPRResult
+            anpr_result = ANPRResult.objects.create(
+                image_path=f"uploads/{image_file.name}",
+                detected_plate=result.get('detected_text', ''),
+                confidence=result.get('validation', {}).get('confidence', 0.0),
+                processing_time=result.get('processing_time', 0.0)
+            )
+            
+            return JsonResponse(result)
+        else:
+            return JsonResponse(result, status=400)
+            
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+@require_GET
+def anpr_results_api(request):
+    """API endpoint for recent ANPR results"""
+    from .models import ANPRResult
+    
+    results = ANPRResult.objects.all()[:20]
+    data = {
+        'results': [
+            {
+                'detected_plate': result.detected_plate,
+                'confidence': float(result.confidence),
+                'processing_time': float(result.processing_time),
+                'timestamp': result.timestamp.isoformat(),
+            }
+            for result in results
+        ]
+    }
+    return JsonResponse(data)
+
+
+@login_required
+@require_POST  
+def totp_disable(request):
+    """Disable TOTP for user"""
+    try:
+        profile = request.user.userprofile
+        profile.totp_enabled = False
+        profile.totp_secret = ""
+        profile.save()
+        return redirect('totp_setup')
+    except:
+        return redirect('totp_setup')

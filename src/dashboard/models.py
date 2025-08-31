@@ -88,3 +88,18 @@ class Transaction(models.Model):
                 'status': self.status
             })
         super().save(*args, **kwargs)
+
+
+class ANPRResult(models.Model):
+    """ANPR processing results model"""
+    image_path = models.CharField(max_length=255, help_text="Path to processed image")
+    detected_plate = models.CharField(max_length=20, blank=True, null=True, help_text="Detected license plate number")
+    confidence = models.FloatField(default=0.0, help_text="Detection confidence (0-100)")
+    processing_time = models.FloatField(default=0.0, help_text="Processing time in seconds")
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        
+    def __str__(self):
+        return f"ANPR: {self.detected_plate or 'No plate'} ({self.confidence:.1f}%)"

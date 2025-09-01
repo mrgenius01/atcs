@@ -53,10 +53,10 @@ class UniversalPlateDetector:
                 print(f"  Contour {analyzed_contours}: area={area:.0f}, bbox=({x},{y},{cw},{ch}), aspect={aspect_ratio:.2f}")
                 
                 # License plates worldwide typically have these characteristics:
-                # - Aspect ratio between 2:1 and 6:1
+                # - Aspect ratio between 1.5:1 and 6:1 (relaxed for various orientations)
                 # - Not too small or too large relative to image
                 # - Rectangular shape
-                if (2.0 <= aspect_ratio <= 6.0 and 
+                if (1.5 <= aspect_ratio <= 6.0 and 
                     cw > 80 and ch > 20 and
                     cw < w * 0.8 and ch < h * 0.4):
                     

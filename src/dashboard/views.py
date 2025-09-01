@@ -27,12 +27,14 @@ def transactions_api(request):
     data = []
     for tx in transactions:
         data.append({
+            'transaction_id': str(tx.transaction_id),
             'plate': tx.license_plate,
             'timestamp': tx.timestamp.isoformat(),
-            'amount': float(tx.amount),
-            'payment_method': tx.payment_method,
+            'amount': float(tx.toll_amount),  # Fixed: was tx.amount
+            'payment_method': tx.payment_method or 'N/A',
             'status': tx.status,
-            'gate_id': tx.gate_id
+            'location': tx.location,  # Fixed: was tx.gate_id
+            'confidence': tx.confidence
         })
     return JsonResponse({"transactions": data})
 
@@ -205,6 +207,53 @@ def anpr_process_api(request):
                 detection_region=result.get('detection_region')
             )
             
+            # Process transaction with payment simulation after successful ANPR detection
+            try:
+                from .models import Transaction
+                import uuid
+                from decimal import Decimal
+                from django.utils import timezone
+                
+                # Create initial transaction record
+                transaction = Transaction.objects.create(
+                    transaction_id=str(uuid.uuid4()),
+                    license_plate=result['plate_number'],
+                    toll_amount=Decimal('2.50'),  # Default toll amount
+                    confidence=result.get('confidence', 0.0),
+                    location='Gate A',  # Default location
+                    status='PROCESSING',  # Start as processing
+                    processed_at=timezone.now()
+                )
+                
+                # Process payment simulation
+                payment_result = process_payment(result['plate_number'], 2.50)
+                
+                # Update transaction based on payment result
+                if payment_result['status'] == 'SUCCESS':
+                    transaction.status = 'COMPLETED'
+                    transaction.payment_method = 'ECOCASH'
+                    transaction.payment_reference = payment_result.get('audit_hash', '')[:20]
+                else:
+                    transaction.status = 'FAILED'
+                    transaction.error_message = payment_result.get('message', 'Payment failed')
+                    transaction.payment_method = 'ECOCASH'
+                
+                transaction.save()
+                
+                # Add transaction info to response
+                transaction_info = {
+                    'transaction_id': transaction.transaction_id,
+                    'toll_amount': str(transaction.toll_amount),
+                    'status': transaction.status,
+                    'payment_method': transaction.payment_method,
+                    'payment_simulation': payment_result['status'],
+                    'payment_message': payment_result.get('message', '')
+                }
+                
+            except Exception as e:
+                print(f"Transaction creation error: {str(e)}")
+                transaction_info = {'error': 'Transaction creation failed'}
+            
             # Return comprehensive result
             response_data = {
                 'success': True,
@@ -214,7 +263,8 @@ def anpr_process_api(request):
                 'message': result.get('message', ''),
                 'validation': validation,
                 'detection_region': result.get('detection_region'),
-                'id': anpr_result.id
+                'id': anpr_result.id,
+                'transaction': transaction_info
             }
             
             return JsonResponse(response_data)

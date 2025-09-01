@@ -76,8 +76,9 @@ def detect_plate_regions_contour(image: np.ndarray) -> List[Tuple[int, int, int,
             
             print(f"  Contour {i+1}: area={area:.0f}, bbox=({x},{y},{w},{h}), aspect={aspect_ratio:.2f}")
             
-            # License plates typically have aspect ratio between 2:1 and 6:1
-            if 2.0 <= aspect_ratio <= 6.0 and area > 800:
+            # License plates typically have aspect ratio between 1.5:1 and 6:1 (relaxed)
+            # Also check for vertical plates or square formats (aspect 0.5-1.5)
+            if ((1.5 <= aspect_ratio <= 6.0) or (0.5 <= aspect_ratio <= 1.5)) and area > 600:
                 # Calculate extent (area ratio)
                 rect_area = w * h
                 extent = area / rect_area if rect_area > 0 else 0

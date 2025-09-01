@@ -7,7 +7,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 SECRET_KEY = os.getenv("SECRET_KEY", "insecure-dev-key")
-DEBUG = os.getenv("DEBUG", "True") == "true"
+DEBUG = os.getenv("DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
 INSTALLED_APPS = [
@@ -86,6 +86,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
 
+print(DEBUG)
 # Security best practices for prod
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
@@ -97,7 +98,7 @@ if not DEBUG:
 else:
     # Development settings - explicitly disable HTTPS redirects
     SECURE_SSL_REDIRECT = False
-    CSRF_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False  # ← This should be False in development!
     SESSION_COOKIE_SECURE = False
     SECURE_HSTS_SECONDS = 0
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False

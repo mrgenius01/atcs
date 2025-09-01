@@ -79,7 +79,7 @@ class Transaction(models.Model):
     license_plate = models.CharField(max_length=20)
     toll_amount = models.DecimalField(max_digits=10, decimal_places=2)
     location = models.CharField(max_length=100, default='Main Toll Plaza')
-    confidence = models.FloatField(help_text="OCR confidence level")
+    confidence = models.FloatField(help_text="OCR confidence level", default=0.5)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, blank=True, null=True)
     payment_reference = models.CharField(max_length=100, blank=True, null=True)
@@ -97,41 +97,6 @@ class Transaction(models.Model):
     def save(self, *args, **kwargs):
         if self.status in ['COMPLETED', 'FAILED'] and not self.processed_at:
             self.processed_at = timezone.now()
-        super().save(*args, **kwargs)
-
-
-# Legacy transaction model - keeping for compatibility
-class Transaction(models.Model):
-    STATUS_CHOICES = [
-        ('SUCCESS', 'Success'),
-        ('FAILED', 'Failed'),
-        ('PENDING', 'Pending'),
-    ]
-    
-    license_plate = models.CharField(max_length=20)
-    timestamp = models.DateTimeField(auto_now_add=True)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_method = models.CharField(max_length=50, default='EcoCash')
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
-    gate_id = models.CharField(max_length=20, default='GATE-001')
-    audit_hash = models.CharField(max_length=64, blank=True)
-    
-    class Meta:
-        ordering = ['-timestamp']
-    
-    def __str__(self):
-        return f"{self.license_plate} - {self.status} - ${self.amount}"
-
-    def save(self, *args, **kwargs):
-        # Generate audit hash on save
-        if not self.audit_hash:
-            from blockchain.ledger import append_audit
-            self.audit_hash = append_audit({
-                'plate': self.license_plate,
-                'amount': str(self.amount),
-                'timestamp': self.timestamp.isoformat() if self.timestamp else '',
-                'status': self.status
-            })
         super().save(*args, **kwargs)
 
 

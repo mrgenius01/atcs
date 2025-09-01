@@ -198,10 +198,11 @@ def anpr_process_api(request):
             # Store result in database
             from .models import ANPRResult
             anpr_result = ANPRResult.objects.create(
-                image_path="uploads/processed_image",  # In production, save actual file
                 detected_plate=result['plate_number'],
                 confidence=result.get('confidence', 0.0),
-                processing_time=result.get('processing_time', 0.0)
+                processing_time=result.get('processing_time', 0.0),
+                detection_method=result.get('method', 'opencv_real'),
+                detection_region=result.get('detection_region')
             )
             
             # Return comprehensive result

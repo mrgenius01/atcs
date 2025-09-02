@@ -3,14 +3,17 @@ from .ecocash_api import simulate_charge
 from blockchain.ledger import append_audit
 
 
-def process_payment(license_plate: str, amount: float) -> dict:
+def process_payment(license_plate: str, amount: float, transaction_id: str | None = None, phone_number: str | None = None) -> dict:
     """
-    Process payment for a license plate
-    Returns payment result with status and details
+    Process payment for a license plate, optionally using a registered phone number.
+    Returns a result containing both legacy keys (status, audit_hash) and new keys (success, reference, payment_method).
     """
     try:
-        # Generate account ID from license plate
-        account_id = f"eco-{license_plate.replace(' ', '').replace('·', '').replace('-', '')}"
+        # Generate account ID: prefer phone if provided
+        if phone_number:
+            account_id = f"eco-msisdn-{phone_number}"
+        else:
+            account_id = f"eco-{license_plate.replace(' ', '').replace('·', '').replace('-', '')}"
         
         # Attempt payment
         payment_status = simulate_charge(account_id, amount)
@@ -20,9 +23,11 @@ def process_payment(license_plate: str, amount: float) -> dict:
             'plate': license_plate,
             'timestamp': datetime.utcnow().isoformat(),
             'amount': amount,
-            'payment_method': 'EcoCash',
+            'payment_method': 'ECOCASH',
             'status': payment_status,
-            'account_id': account_id
+            'account_id': account_id,
+            'transaction_id': transaction_id,
+            'phone_number': phone_number,
         }
         
         # Log to blockchain
@@ -35,18 +40,30 @@ def process_payment(license_plate: str, amount: float) -> dict:
             message = f"Payment failed for {license_plate}. Please try alternative payment method."
         
         return {
-            'status': payment_status,
+            # New fields
+            'success': payment_status == 'SUCCESS',
             'message': message,
+            'payment_method': 'ECOCASH',
+            'reference': audit_hash[:20],
+            'balance': None,
+            'processing_time': 0,
+            # Legacy fields (kept for backward compatibility)
+            'status': payment_status,
             'transaction_data': transaction_data,
-            'audit_hash': audit_hash
+            'audit_hash': audit_hash,
         }
         
     except Exception as e:
         return {
+            'success': False,
             'status': 'ERROR',
             'message': f"Payment processing error: {str(e)}",
             'transaction_data': None,
-            'audit_hash': None
+            'audit_hash': None,
+            'payment_method': 'ECOCASH',
+            'reference': None,
+            'balance': None,
+            'processing_time': 0,
         }
 
 

@@ -38,3 +38,8 @@ def get_last_hash() -> Optional[str]:
     if _last_hash is None:
         _last_hash = _load_last_hash()
     return _last_hash
+
+
+def store_audit_hash(data: dict) -> str:
+    """Public helper to append an audit record and return the resulting hash."""
+    return append_audit(data)

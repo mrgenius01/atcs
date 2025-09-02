@@ -8,6 +8,18 @@ import io
 import base64
 
 
+def normalize_plate(plate: str) -> str:
+    """Normalize license plate for consistent lookups (uppercase, no spaces/dots/dashes)."""
+    if not plate:
+        return ""
+    return (
+        plate.upper()
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("·", "")
+    )
+
+
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     totp_secret = models.CharField(max_length=32, blank=True)
@@ -141,3 +153,25 @@ class AuditLog(models.Model):
         
     def __str__(self):
         return f"{self.action} - {self.user or 'Anonymous'} at {self.timestamp}"
+
+
+class PlateRegistration(models.Model):
+    """Maps a license plate to a mobile phone number for payments."""
+    license_plate = models.CharField(max_length=20, unique=True)
+    normalized_plate = models.CharField(max_length=20, unique=True, db_index=True)
+    phone_number = models.CharField(max_length=20)
+    owner_name = models.CharField(max_length=100, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"{self.license_plate} -> {self.phone_number} ({'active' if self.is_active else 'inactive'})"
+
+    def save(self, *args, **kwargs):
+        # Ensure normalized plate is always in sync and unique
+        self.normalized_plate = normalize_plate(self.license_plate)
+        super().save(*args, **kwargs)

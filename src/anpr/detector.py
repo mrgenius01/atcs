@@ -250,6 +250,9 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
         from .preprocess import preprocess_image
         from .ocr_model import load_model, infer_plate_text
         from .universal_detector import UniversalPlateDetector
+        # Optionally use Gemini if API key present
+        import os
+        use_gemini = bool(os.getenv('GEMINI_API_KEY'))
         
         # Initialize detectors
         if detector is None:
@@ -268,10 +271,9 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
                 'processing_time': time.time() - start_time
             }
         
-        # Handle different input types
+    # Handle different input types
         if isinstance(image_data, str):
             # Base64 encoded image
-            from .preprocess import preprocess_image
             processed_result = preprocess_image(image_data)
             if processed_result.get('error'):
                 logger.error(f"Preprocessing failed: {processed_result['error']}")
@@ -297,6 +299,21 @@ def detect_and_recognize_plate(image_data, detector: LicensePlateDetector = None
         logger.info(f"Processing image shape: {original_image.shape}")
         print(f"🔍 DETECTION: Processing image shape: {original_image.shape}")
         
+        # If Gemini available, try it first for simplicity/robustness
+        if use_gemini:
+            try:
+                from .gemini_recognizer import recognize_plate_with_gemini
+                g = recognize_plate_with_gemini(image_data)
+                if g.get('success') and g.get('plate'):
+                    return {
+                        'plate': g['plate'],
+                        'confidence': float(g.get('confidence') or 0.8),
+                        'processing_time': time.time() - start_time,
+                        'method': 'gemini'
+                    }
+            except Exception as ge:
+                logger.warning(f"Gemini recognition failed, falling back: {ge}")
+
         # Try universal detection first (enhanced multi-strategy approach)
         regions = universal_detector.detect_plates(original_image)
         print(f"🔍 DETECTION: Universal detector found {len(regions)} regions")

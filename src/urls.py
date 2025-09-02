@@ -4,7 +4,8 @@ from dashboard.views import (
     home, login_view, logout_view, transactions_api, 
     totp_setup, process_vehicle,
     anpr_page, anpr_process_api, anpr_results_api,
-    process_vehicle_transaction, transaction_status, recent_transactions
+    process_vehicle_transaction, transaction_status, recent_transactions,
+    register_plate, plate_info, list_registrations, manage_registrations
 )
 
 urlpatterns = [
@@ -22,4 +23,9 @@ urlpatterns = [
     path("api/process-vehicle-transaction/", process_vehicle_transaction, name="process_vehicle_transaction"),
     path("api/transaction-status/<str:transaction_id>/", transaction_status, name="transaction_status"),
     path("api/recent-transactions/", recent_transactions, name="recent_transactions"),
+    # Plate registration endpoints
+    path("api/plates/register/", register_plate, name="register_plate"),
+    path("api/plates/info/", plate_info, name="plate_info"),
+    path("api/plates/", list_registrations, name="list_registrations"),
+    path("registrations/", manage_registrations, name="manage_registrations"),
 ]

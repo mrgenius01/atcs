@@ -5,13 +5,13 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 import json
-from .models import Transaction, ANPRResult, AuditLog
+from .models import Transaction, ANPRResult, AuditLog, PlateRegistration, normalize_plate
 from security.auth import verify_totp, get_qr_code, get_or_create_profile
 from payments.transactions import process_payment
 from anpr.detector import detect_and_recognize_plate
 
 
-# @login_required  # Temporarily disabled for testing
+@login_required
 def home(request):
     recent_transactions = Transaction.objects.all()[:10]
     return render(request, "dashboard/home.html", {
@@ -107,15 +107,15 @@ def process_vehicle(request):
         plate_number = plate_result['plate']
         confidence = plate_result.get('confidence', 0.0)
         
-        # Process payment
+        # Process payment (legacy simple flow)
         payment_result = process_payment(plate_number, 2.00)  # $2 toll
         
         # Create transaction record
         transaction = Transaction.objects.create(
             license_plate=plate_number,
-            amount=2.00,
-            status=payment_result['status'],
-            payment_method='EcoCash'
+            toll_amount=2.00,
+            status='COMPLETED' if payment_result.get('status') == 'SUCCESS' else 'FAILED',
+            payment_method='ECOCASH'
         )
         
         return JsonResponse({
@@ -123,7 +123,7 @@ def process_vehicle(request):
             'plate': plate_number,
             'confidence': confidence,
             'amount': 2.00,
-            'status': payment_result['status'],
+            'status': payment_result.get('status', 'ERROR'),
             'message': payment_result.get('message', '')
         })
         
@@ -307,6 +307,130 @@ def anpr_results_api(request):
 @login_required
 @require_POST
 @csrf_exempt
+def register_plate(request):
+    """Register or update a license plate with a phone number."""
+    try:
+        payload = json.loads(request.body)
+        plate = payload.get('license_plate') or payload.get('plate')
+        phone = payload.get('phone_number') or payload.get('phone')
+        owner = payload.get('owner_name')
+        if not plate or not phone:
+            return JsonResponse({'error': 'license_plate and phone_number are required'}, status=400)
+
+        norm = normalize_plate(plate)
+        obj, created = PlateRegistration.objects.update_or_create(
+            normalized_plate=norm,
+            defaults={
+                'license_plate': plate.upper(),
+                'phone_number': phone,
+                'owner_name': owner,
+                'is_active': True,
+            }
+        )
+
+        AuditLog.objects.create(
+            user=request.user,
+            action='TRANSACTION_UPDATE',
+            details={'plate': obj.license_plate, 'phone_number': obj.phone_number, 'created': created}
+        )
+
+        return JsonResponse({
+            'success': True,
+            'created': created,
+            'license_plate': obj.license_plate,
+            'phone_number': obj.phone_number,
+            'owner_name': obj.owner_name,
+            'is_active': obj.is_active,
+        })
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+
+
+@login_required
+@require_GET
+def plate_info(request):
+    """Lookup a plate; returns phone if registered."""
+    plate = request.GET.get('plate') or request.GET.get('license_plate')
+    if not plate:
+        return JsonResponse({'error': 'plate is required'}, status=400)
+    reg = PlateRegistration.objects.filter(normalized_plate=normalize_plate(plate), is_active=True).first()
+    if not reg:
+        return JsonResponse({'registered': False, 'message': 'Plate not registered'}, status=404)
+    return JsonResponse({
+        'registered': True,
+        'license_plate': reg.license_plate,
+        'phone_number': reg.phone_number,
+        'owner_name': reg.owner_name,
+        'is_active': reg.is_active,
+    })
+
+
+@login_required
+@require_GET
+def list_registrations(request):
+    qs = PlateRegistration.objects.all()[:100]
+    return JsonResponse({'registrations': [
+        {
+            'license_plate': r.license_plate,
+            'phone_number': r.phone_number,
+            'owner_name': r.owner_name,
+            'is_active': r.is_active,
+            'updated_at': r.updated_at.isoformat(),
+        }
+        for r in qs
+    ]})
+
+
+@login_required
+def manage_registrations(request):
+    """Render/manage plate registrations with a form and a table."""
+    flash = None
+    error = None
+    if request.method == 'POST':
+        action = request.POST.get('action', 'upsert')
+        plate = request.POST.get('license_plate')
+        phone = request.POST.get('phone_number')
+        owner = request.POST.get('owner_name')
+        reg_id = request.POST.get('id')
+        try:
+            if action in ('deactivate', 'activate') and reg_id:
+                r = PlateRegistration.objects.get(id=reg_id)
+                r.is_active = (action == 'activate')
+                r.save()
+                flash = f"Registration {action}d."
+            elif action == 'delete' and reg_id:
+                PlateRegistration.objects.filter(id=reg_id).delete()
+                flash = "Registration deleted."
+            else:
+                if not plate or not phone:
+                    error = 'license_plate and phone_number are required'
+                else:
+                    obj, created = PlateRegistration.objects.update_or_create(
+                        normalized_plate=normalize_plate(plate),
+                        defaults={
+                            'license_plate': plate.upper(),
+                            'phone_number': phone,
+                            'owner_name': owner,
+                            'is_active': True,
+                        }
+                    )
+                    flash = 'Registration created.' if created else 'Registration updated.'
+        except PlateRegistration.DoesNotExist:
+            error = 'Registration not found'
+        except Exception as e:
+            error = str(e)
+
+    regs = PlateRegistration.objects.all().order_by('-updated_at')[:200]
+    return render(request, 'dashboard/registrations.html', {
+        'registrations': regs,
+        'flash': flash,
+        'error': error,
+    })
+
+
+@login_required
+@require_POST
+@csrf_exempt
 def process_vehicle_transaction(request):
     """Complete vehicle transaction flow after plate detection"""
     print("=== TRANSACTION PROCESSING STARTED ===")
@@ -367,16 +491,30 @@ def process_vehicle_transaction(request):
         
         print(f"Created transaction: {transaction.transaction_id}")
         
-        # 2. Process payment
+        # 2. Lookup plate registration
+        reg = PlateRegistration.objects.filter(normalized_plate=normalize_plate(plate_number), is_active=True).first()
+        if not reg:
+            transaction.status = 'FAILED'
+            transaction.error_message = 'Plate not registered'
+            transaction.save()
+            return JsonResponse({
+                'success': False,
+                'error': 'Plate not registered in system',
+                'plate_number': plate_number,
+                'transaction_id': str(transaction.transaction_id)
+            }, status=404)
+
+        # 3. Process payment using registered phone number
         payment_result = process_payment(
             plate_number=plate_number,
             amount=toll_amount,
-            transaction_id=str(transaction.transaction_id)
+            transaction_id=str(transaction.transaction_id),
+            phone_number=reg.phone_number
         )
         
         print(f"Payment result: {payment_result}")
         
-        # 3. Update transaction status
+    # 4. Update transaction status
         if payment_result['success']:
             transaction.status = 'COMPLETED'
             transaction.payment_method = payment_result.get('payment_method', 'ECOCASH')
@@ -387,7 +525,7 @@ def process_vehicle_transaction(request):
         
         transaction.save()
         
-        # 4. Store blockchain audit trail
+    # 5. Store blockchain audit trail
         from blockchain.ledger import store_audit_hash
         audit_data = {
             'transaction_id': str(transaction.transaction_id),
@@ -402,7 +540,7 @@ def process_vehicle_transaction(request):
         
         print(f"Stored blockchain hash: {audit_hash[:16]}...")
         
-        # 5. Log ANPR result
+    # 6. Log ANPR result
         ANPRResult.objects.create(
             detected_plate=plate_number,
             confidence=confidence,
@@ -411,7 +549,7 @@ def process_vehicle_transaction(request):
             detection_method='opencv_real'
         )
         
-        # 6. Log audit trail
+    # 7. Log audit trail
         AuditLog.objects.create(
             user=request.user,
             action='PAYMENT_PROCESS',

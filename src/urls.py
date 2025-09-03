@@ -1,11 +1,13 @@
 from django.contrib import admin
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
 from dashboard.views import (
     home, login_view, logout_view, transactions_api, 
     totp_setup, process_vehicle,
     anpr_page, anpr_process_api, anpr_results_api,
     process_vehicle_transaction, transaction_status, recent_transactions,
-    register_plate, plate_info, list_registrations, manage_registrations
+    register_plate, plate_info, list_registrations, manage_registrations, gemini_plate_api, manual_review_update
 )
 
 urlpatterns = [
@@ -28,4 +30,9 @@ urlpatterns = [
     path("api/plates/info/", plate_info, name="plate_info"),
     path("api/plates/", list_registrations, name="list_registrations"),
     path("registrations/", manage_registrations, name="manage_registrations"),
+    path("api/gemini-plate/", gemini_plate_api, name="gemini_plate_api"),
+    path("api/transactions/manual-review/", manual_review_update, name="manual_review_update"),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

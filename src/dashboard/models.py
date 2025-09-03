@@ -99,6 +99,8 @@ class Transaction(models.Model):
     error_message = models.TextField(blank=True, null=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(blank=True, null=True)
+    image = models.ImageField(upload_to='transactions/', blank=True, null=True)
+    plate_roi = models.ImageField(upload_to='transactions/roi/', blank=True, null=True)
     
     class Meta:
         ordering = ['-timestamp']
@@ -161,6 +163,7 @@ class PlateRegistration(models.Model):
     normalized_plate = models.CharField(max_length=20, unique=True, db_index=True)
     phone_number = models.CharField(max_length=20)
     owner_name = models.CharField(max_length=100, blank=True, null=True)
+    plate_image = models.ImageField(upload_to='plates/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

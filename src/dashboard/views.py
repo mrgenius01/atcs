@@ -9,6 +9,23 @@ from .models import Transaction, ANPRResult, AuditLog, PlateRegistration, normal
 from security.auth import verify_totp, get_qr_code, get_or_create_profile
 from payments.transactions import process_payment
 from anpr.detector import detect_and_recognize_plate
+from anpr.gemini_recognizer import recognize_plate_with_gemini
+
+
+@csrf_exempt
+@require_POST
+@login_required
+def gemini_plate_api(request):
+    """API endpoint to test raw Gemini plate detection from image data."""
+    try:
+        data = json.loads(request.body)
+        image_data = data.get('image')
+        if not image_data:
+            return JsonResponse({'error': 'No image provided'}, status=400)
+        result = recognize_plate_with_gemini(image_data)
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 @login_required
@@ -224,6 +241,16 @@ def anpr_process_api(request):
                     status='PROCESSING',  # Start as processing
                     processed_at=timezone.now()
                 )
+                # Attach image data if available (store original upload)
+                try:
+                    if isinstance(image_data, str) and image_data.startswith('data:image'):
+                        import base64, io
+                        from django.core.files.base import ContentFile
+                        header, b64 = image_data.split(',', 1)
+                        content = base64.b64decode(b64)
+                        transaction.image.save(f"{transaction.transaction_id}.png", ContentFile(content), save=True)
+                except Exception as _:
+                    pass
                 
                 # Process payment simulation
                 payment_result = process_payment(result['plate_number'], 2.50)
@@ -414,6 +441,11 @@ def manage_registrations(request):
                             'is_active': True,
                         }
                     )
+                    # If a plate image was uploaded, attach it
+                    img = request.FILES.get('plate_image')
+                    if img:
+                        obj.plate_image = img
+                        obj.save()
                     flash = 'Registration created.' if created else 'Registration updated.'
         except PlateRegistration.DoesNotExist:
             error = 'Registration not found'
@@ -638,6 +670,62 @@ def recent_transactions(request):
         ]
     }
     return JsonResponse(data)
+
+
+@login_required
+@require_POST
+@csrf_exempt
+def manual_review_update(request):
+    """Allow manual correction of a transaction's plate and attempt payment if registered."""
+    try:
+        payload = json.loads(request.body)
+        tx_id = payload.get('transaction_id')
+        plate = payload.get('plate_number')
+        if not tx_id or not plate:
+            return JsonResponse({'success': False, 'error': 'transaction_id and plate_number required'}, status=400)
+
+        tx = Transaction.objects.get(transaction_id=tx_id)
+        tx.license_plate = plate.upper()
+        tx.confidence = max(tx.confidence, 0.7)  # mark as reviewed
+        tx.status = 'PROCESSING'
+        tx.save()
+
+        # Lookup registration
+        reg = PlateRegistration.objects.filter(normalized_plate=normalize_plate(plate), is_active=True).first()
+        if not reg:
+            tx.status = 'FAILED'
+            tx.error_message = 'Plate not registered'
+            tx.save()
+            return JsonResponse({'success': False, 'error': 'Plate not registered'}, status=404)
+
+        # Process payment
+        payment_result = process_payment(
+            plate_number=tx.license_plate,
+            amount=float(tx.toll_amount),
+            transaction_id=tx.transaction_id,
+            phone_number=reg.phone_number
+        )
+
+        if payment_result['success']:
+            tx.status = 'COMPLETED'
+            tx.payment_method = payment_result.get('payment_method', 'ECOCASH')
+            tx.payment_reference = payment_result.get('reference', '')
+        else:
+            tx.status = 'FAILED'
+            tx.error_message = payment_result.get('error', 'Payment failed')
+        tx.save()
+
+        return JsonResponse({
+            'success': payment_result['success'],
+            'transaction_id': tx.transaction_id,
+            'status': tx.status,
+            'payment_method': tx.payment_method,
+            'payment_reference': tx.payment_reference,
+        })
+    except Transaction.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Transaction not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
 

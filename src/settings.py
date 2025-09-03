@@ -82,6 +82,10 @@ STATICFILES_DIRS = [str(BASE_DIR / "dashboard" / "static")]
 # Default primary key type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Media files (uploads)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = str(BASE_DIR / "media")
+
 # Auth
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"

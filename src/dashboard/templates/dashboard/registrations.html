@@ -13,7 +13,7 @@
       {% if error %}
       <div class="mb-4 p-3 rounded bg-red-50 text-red-700 border border-red-200">{{ error }}</div>
       {% endif %}
-      <form method="post" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
         {% csrf_token %}
         <input type="hidden" name="action" value="upsert" />
         <div>
@@ -27,6 +27,10 @@
         <div>
           <label class="block text-sm font-medium text-gray-700">Owner Name (optional)</label>
           <input name="owner_name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-atcs-blue focus:border-atcs-blue" placeholder="John Doe" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Plate Image (optional)</label>
+          <input type="file" name="plate_image" accept="image/*" class="mt-1 block w-full text-sm" />
         </div>
         <div>
           <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-atcs-green hover:bg-green-700 focus:outline-none">Save</button>
@@ -48,6 +52,7 @@
           <tr>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plate</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Photo</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -59,6 +64,13 @@
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ r.license_plate }}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ r.phone_number }}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{{ r.owner_name|default:'—' }}</td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              {% if r.plate_image %}
+                <img src="{{ r.plate_image.url }}" alt="plate" class="h-10 w-auto rounded border" />
+              {% else %}
+                <span class="text-xs text-gray-400">No photo</span>
+              {% endif %}
+            </td>
             <td class="px-6 py-4 whitespace-nowrap">
               <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {{ r.is_active|yesno:'bg-green-100 text-green-800,bg-gray-100 text-gray-800' }}">{{ r.is_active|yesno:'Active,Inactive' }}</span>
             </td>

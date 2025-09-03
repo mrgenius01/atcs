@@ -88,7 +88,7 @@ def recognize_plate_with_gemini(image_data: Any, *, api_key: Optional[str] = Non
         import google.generativeai as genai  # type: ignore
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name)
-
+        print("start gemini recog..")
         prompt = (
             "You are an ANPR assistant. Extract the vehicle license plate text from the provided image. "
             "If multiple plates are visible, choose the most prominent. "
@@ -102,6 +102,7 @@ def recognize_plate_with_gemini(image_data: Any, *, api_key: Optional[str] = Non
         ]
 
         resp = model.generate_content(parts)
+        print("gemini recog done."+str(resp))
         raw_text = getattr(resp, "text", None) or (getattr(resp, 'candidates', None) and resp.candidates[0].content.parts[0].text)
         if not raw_text:
             raw_text = str(resp)

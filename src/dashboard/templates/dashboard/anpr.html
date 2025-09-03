@@ -25,7 +25,7 @@
           <label class="block text-sm font-medium text-gray-700">
             Upload Vehicle Image
           </label>
-          <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-gray-400 transition-colors">
+          <div id="drop-zone" class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-gray-400 transition-colors">
             <div class="space-y-1 text-center">
               <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                 <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
@@ -38,19 +38,42 @@
                 <p class="pl-1">or drag and drop</p>
               </div>
               <p class="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
+              <p id="selected-file" class="text-xs text-gray-600 hidden"></p>
             </div>
+          </div>
+          <!-- Preview -->
+          <div id="preview-wrapper" class="mt-4 hidden">
+            <p class="text-sm text-gray-600 mb-2">Preview:</p>
+            <img id="preview-img" alt="Preview" class="max-h-64 rounded-md border border-gray-200" />
           </div>
         </div>
 
-        <!-- Process Button -->
-        <div>
+        <!-- Actions -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+          <!-- Toggle -->
+          <label class="inline-flex items-center cursor-pointer select-none">
+            <input id="use-gemini-toggle" type="checkbox" class="sr-only">
+            <span class="mr-3 text-sm text-gray-700">Use Gemini by default</span>
+            <span class="relative">
+              <span class="block w-10 h-6 bg-gray-300 rounded-full shadow-inner transition" id="toggle-track"></span>
+              <span class="dot absolute left-0 top-0 h-6 w-6 bg-white rounded-full shadow transform transition" id="toggle-thumb"></span>
+            </span>
+          </label>
           <button type="submit" 
                   class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                   id="process-btn">
             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
             </svg>
-            Process Image
+            <span id="process-btn-text">Process (OpenCV/EasyOCR)</span>
+          </button>
+          <button type="button" 
+                  class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50"
+                  id="gemini-btn">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            Test with Gemini
           </button>
         </div>
       </form>
@@ -106,58 +129,130 @@
 </div>
 
 <script>
-document.getElementById('upload-form').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  
-  const imageFile = document.getElementById('image-upload').files[0];
+const imageInput = document.getElementById('image-upload');
+const dropZone = document.getElementById('drop-zone');
+const selectedFile = document.getElementById('selected-file');
+const previewWrapper = document.getElementById('preview-wrapper');
+const previewImg = document.getElementById('preview-img');
+const useGeminiToggle = document.getElementById('use-gemini-toggle');
+const processBtnText = document.getElementById('process-btn-text');
+const toggleTrack = document.getElementById('toggle-track');
+const toggleThumb = document.getElementById('toggle-thumb');
+
+function showPreview(file) {
+  if (!file) return;
+  selectedFile.textContent = `Selected: ${file.name} (${Math.round(file.size/1024)} KB)`;
+  selectedFile.classList.remove('hidden');
+  const url = URL.createObjectURL(file);
+  previewImg.src = url;
+  previewWrapper.classList.remove('hidden');
+}
+
+// Drag & drop handlers
+['dragenter','dragover'].forEach(evt => {
+  dropZone.addEventListener(evt, e => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.add('ring', 'ring-blue-400', 'ring-offset-2');
+  });
+});
+['dragleave','drop'].forEach(evt => {
+  dropZone.addEventListener(evt, e => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('ring', 'ring-blue-400', 'ring-offset-2');
+  });
+});
+dropZone.addEventListener('drop', e => {
+  const files = e.dataTransfer.files;
+  if (files && files[0]) {
+    const dt = new DataTransfer();
+    dt.items.add(files[0]);
+    imageInput.files = dt.files;
+    showPreview(files[0]);
+  }
+});
+
+// File input preview
+imageInput.addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  showPreview(file);
+});
+
+async function processImage(endpoint) {
+  const file = imageInput.files[0];
   const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-  
-  if (!imageFile) {
+  if (!file) {
     alert('Please select an image file');
     return;
   }
-  
-  // Convert image to base64
   const reader = new FileReader();
-  reader.onload = async function(e) {
-    const base64Image = e.target.result;
-    
-    const processBtn = document.getElementById('process-btn');
-    const originalText = processBtn.innerHTML;
-    processBtn.disabled = true;
-    processBtn.innerHTML = '<svg class="animate-spin h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Processing...';
-    
-    try {
-      const response = await fetch('/api/anpr/process/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken
-        },
-        body: JSON.stringify({
-          image: base64Image
-        })
-      });
-      
-      const result = await response.json();
-      
-      // Show results
-      document.getElementById('results-section').classList.remove('hidden');
-      document.getElementById('results-content').innerHTML = formatResults(result);
-      
-      // Refresh recent results
-      loadRecentResults();
-      
-    } catch (error) {
-      alert('Error processing image: ' + error.message);
-    } finally {
-      processBtn.disabled = false;
-      processBtn.innerHTML = originalText;
-    }
-  };
-  
-  reader.readAsDataURL(imageFile);
+  return new Promise((resolve, reject) => {
+    reader.onload = async function(ev) {
+      const base64Image = ev.target.result;
+      const btn = endpoint.includes('gemini') ? document.getElementById('gemini-btn') : document.getElementById('process-btn');
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<svg class="animate-spin h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Processing...';
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify({ image: base64Image })
+        });
+        const result = await response.json();
+        document.getElementById('results-section').classList.remove('hidden');
+        document.getElementById('results-content').innerHTML = formatResults(
+          result.success ? {
+            success: true,
+            plate_number: result.plate || result.plate_number || result.plateNumber || '',
+            confidence: (result.confidence || 0) * (endpoint.includes('gemini') ? 100 : 1),
+            processing_time: result.processing_time || 0,
+            validation: result.validation || {}
+          } : result
+        );
+        resolve();
+      } catch (err) {
+        alert('Error: ' + err.message);
+        reject(err);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('upload-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const endpoint = useGeminiToggle.checked ? '/api/gemini-plate/' : '/api/anpr/process/';
+  await processImage(endpoint);
+  // Refresh recent results
+  loadRecentResults();
 });
+
+document.getElementById('gemini-btn').addEventListener('click', async function() {
+  await processImage('/api/gemini-plate/');
+});
+
+// Toggle UI behavior
+function renderToggle() {
+  if (useGeminiToggle.checked) {
+    processBtnText.textContent = 'Process (Gemini)';
+    toggleTrack.classList.remove('bg-gray-300');
+    toggleTrack.classList.add('bg-purple-600');
+    toggleThumb.classList.add('translate-x-4');
+  } else {
+    processBtnText.textContent = 'Process (OpenCV/EasyOCR)';
+    toggleTrack.classList.add('bg-gray-300');
+    toggleTrack.classList.remove('bg-purple-600');
+    toggleThumb.classList.remove('translate-x-4');
+  }
+}
+useGeminiToggle.addEventListener('change', renderToggle);
+renderToggle();
 
 function processTransaction(plateData) {
   console.log('Processing transaction for:', plateData);
@@ -264,8 +359,8 @@ function formatResults(result) {
         ${validation.format.replace('_', ' ')}
       </span>` : '';
     
-    // If confidence is high enough, automatically process transaction
-    if (result.confidence > 70) {
+  // If confidence is high enough, automatically process transaction
+  if (result.confidence > 70) {
       setTimeout(() => processTransaction(result), 1500);
     }
     
@@ -305,6 +400,53 @@ function formatResults(result) {
           </div>
         </div>
       </div>
+      ${result.confidence <= 70 ? `
+        <div class="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-4">
+          <p class="text-sm text-yellow-800 mb-2">Low confidence. You can correct the plate and retry payment:</p>
+          <div class="flex items-center space-x-2">
+            <input id="manual-plate" value="${result.plate_number}" class="flex-1 rounded-md border-gray-300 focus:ring-atcs-blue focus:border-atcs-blue text-sm" />
+            <button id="manual-submit" class="px-3 py-2 bg-atcs-blue text-white rounded text-sm">Submit Correction</button>
+          </div>
+        </div>
+        <script>
+          (function(){
+            const btn = document.getElementById('manual-submit');
+            if (btn) {
+              btn.addEventListener('click', async () => {
+                const plate = document.getElementById('manual-plate').value.trim();
+                if (!plate) return;
+                try {
+                  // Get a transaction id if available in response
+                  // If not, we first create a placeholder transaction via process-vehicle-transaction
+                  const initResp = await fetch('/api/process-vehicle-transaction/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
+                    body: JSON.stringify({ plate_number: plate, confidence: 0.7, toll_amount: 2.50, location: 'Manual Review' })
+                  });
+                  const initData = await initResp.json();
+                  if (!initData.transaction_id) {
+                    alert(initData.error || 'Failed to create transaction');
+                    return;
+                  }
+                  const resp = await fetch('/api/transactions/manual-review/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
+                    body: JSON.stringify({ transaction_id: initData.transaction_id, plate_number: plate })
+                  });
+                  const data = await resp.json();
+                  if (!data.success) {
+                    alert(data.error || 'Payment failed');
+                  } else {
+                    alert('Payment completed');
+                  }
+                } catch (e) {
+                  alert('Error: ' + e.message);
+                }
+              });
+            }
+          })();
+        </script>
+      ` : ''}
     `;
   } else {
     return `

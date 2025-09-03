@@ -5,7 +5,8 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 import json
-from .models import Transaction, ANPRResult, AuditLog, PlateRegistration, normalize_plate
+from .models import Transaction, ANPRResult, AuditLog, PlateRegistration, normalize_plate, FeedbackThread, FeedbackReply
+from django.db import models
 from security.auth import verify_totp, get_qr_code, get_or_create_profile
 from payments.transactions import process_payment
 from anpr.detector import detect_and_recognize_plate
@@ -670,6 +671,55 @@ def recent_transactions(request):
         ]
     }
     return JsonResponse(data)
+
+
+@login_required
+@require_GET
+def critical_feedback_alerts(request):
+    """Return open feedback threads labeled CRITICAL for alert badges."""
+    threads = FeedbackThread.objects.filter(severity='CRITICAL', status='OPEN').order_by('-last_activity')[:20]
+    return JsonResponse({
+        'count': threads.count(),
+        'items': [
+            {
+                'id': t.id,
+                'subject': t.subject,
+                'severity': t.severity,
+                'status': t.status,
+                'last_activity': t.last_activity.isoformat(),
+            } for t in threads
+        ]
+    })
+
+
+@login_required
+@require_GET
+def pending_reply_notifications(request):
+    """Return replies that are pending or unread, optionally scoped to the current user."""
+    # Replies awaiting action: status=PENDING or unread ones in OPEN threads assigned to user
+    base_qs = FeedbackReply.objects.select_related('thread')
+
+    # If assigned_to is set, highlight unread in their threads
+    unread_qs = base_qs.filter(is_read=False, thread__status='OPEN')
+    if request.user.is_authenticated:
+        unread_qs = unread_qs.filter(models.Q(thread__assigned_to=request.user) | models.Q(thread__assigned_to__isnull=True))
+
+    pending_qs = base_qs.filter(status='PENDING', thread__status='OPEN')
+    replies = (unread_qs | pending_qs).order_by('-created_at').distinct()[:20]
+
+    return JsonResponse({
+        'count': replies.count(),
+        'items': [
+            {
+                'id': r.id,
+                'thread_id': r.thread_id,
+                'thread_subject': r.thread.subject,
+                'status': r.status,
+                'is_read': r.is_read,
+                'created_at': r.created_at.isoformat(),
+            } for r in replies
+        ]
+    })
 
 
 @login_required

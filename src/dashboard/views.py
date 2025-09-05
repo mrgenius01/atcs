@@ -2,13 +2,14 @@ from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required, user_passes_test
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum
 from django.utils import timezone
 from decimal import Decimal
 import json
+import logging
 from .models import (
     Transaction, ANPRResult, AuditLog, PlateRegistration, normalize_plate, 
     FeedbackThread, FeedbackReply, UserProfile, AccountTransaction, UserRole
@@ -19,6 +20,7 @@ from payments.transactions import process_payment
 from anpr.detector import detect_and_recognize_plate
 from anpr.gemini_recognizer import recognize_plate_with_gemini
 
+logger = logging.getLogger(__name__)
 
 # Role-based access decorators
 def admin_required(view_func):
@@ -210,9 +212,9 @@ def logout_view(request):
     return redirect("login")
 
 
-@login_required
+@operator_or_admin_required
 def anpr_page(request):
-    """ANPR processing page"""
+    """ANPR processing page - Admin/Operator only"""
     return render(request, "dashboard/anpr.html")
 
 
@@ -371,6 +373,7 @@ def register_plate(request):
         obj, created = PlateRegistration.objects.update_or_create(
             normalized_plate=norm,
             defaults={
+                'user': request.user,  # Associate with current user
                 'license_plate': plate.upper(),
                 'phone_number': phone,
                 'owner_name': owner,
@@ -455,29 +458,47 @@ def manage_registrations(request):
                 if not plate or not phone:
                     error = 'license_plate and phone_number are required'
                 else:
-                    obj, created = PlateRegistration.objects.update_or_create(
-                        normalized_plate=normalize_plate(plate),
-                        defaults={
-                            'license_plate': plate.upper(),
-                            'phone_number': phone,
-                            'owner_name': owner,
-                            'is_active': True,
-                        }
-                    )
-                    # If a plate image was uploaded, attach it
-                    img = request.FILES.get('plate_image')
-                    if img:
-                        obj.plate_image = img
-                        obj.save()
-                    flash = 'Registration created.' if created else 'Registration updated.'
+                    # Get user_id from form or default to current user for admin
+                    user_id = request.POST.get('user_id') 
+                    if user_id:
+                        from django.contrib.auth.models import User
+                        try:
+                            assigned_user = User.objects.get(id=user_id)
+                        except User.DoesNotExist:
+                            error = 'Selected user not found'
+                            assigned_user = None
+                    else:
+                        assigned_user = request.user  # Default to current user
+                    
+                    if assigned_user:
+                        obj, created = PlateRegistration.objects.update_or_create(
+                            normalized_plate=normalize_plate(plate),
+                            defaults={
+                                'user': assigned_user,
+                                'license_plate': plate.upper(),
+                                'phone_number': phone,
+                                'owner_name': owner,
+                                'is_active': True,
+                            }
+                        )
+                        # If a plate image was uploaded, attach it
+                        img = request.FILES.get('plate_image')
+                        if img:
+                            obj.plate_image = img
+                            obj.save()
+                        flash = 'Registration created.' if created else 'Registration updated.'
         except PlateRegistration.DoesNotExist:
             error = 'Registration not found'
         except Exception as e:
             error = str(e)
 
-    regs = PlateRegistration.objects.all().order_by('-updated_at')[:200]
+    from django.contrib.auth.models import User
+    regs = PlateRegistration.objects.select_related('user').all().order_by('-updated_at')[:200]
+    all_users = User.objects.all().order_by('username')
+    
     return render(request, 'dashboard/registrations.html', {
         'registrations': regs,
+        'all_users': all_users,
         'flash': flash,
         'error': error,
     })
@@ -629,7 +650,11 @@ def process_vehicle_transaction(request):
             'payment_reference': transaction.payment_reference,
             'blockchain_hash': audit_hash,
             'message': payment_result.get('message', 'Transaction processed successfully'),
-            'balance_remaining': payment_result.get('balance', 0),
+            'balance': payment_result.get('balance', 0),
+            'requires_funding': payment_result.get('requires_funding', False),
+            'funding_amount': payment_result.get('funding_amount', 0),
+            'phone_number': payment_result.get('phone_number', ''),
+            'payment_provider': payment_result.get('payment_provider', ''),
             'processing_time': payment_result.get('processing_time', 0)
         })
         
@@ -650,6 +675,87 @@ def process_vehicle_transaction(request):
         return JsonResponse({
             'success': False,
             'error': f'Transaction processing failed: {str(e)}'
+        }, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@login_required
+def initiate_paynow_funding(request):
+    """
+    Initiate Paynow payment for account funding
+    """
+    try:
+        data = json.loads(request.body)
+        phone_number = data.get('phone_number')
+        amount = data.get('amount', 10.00)
+        payment_provider = data.get('payment_provider', 'ECOCASH')
+        
+        print(f"Initiating Paynow funding: {phone_number}, ${amount}, {payment_provider}")
+        
+        # Validate phone number format
+        if not phone_number or not phone_number.startswith('07'):
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid phone number format',
+                'message': 'Phone number must be in format 077xxxxxxx or 071xxxxxxx'
+            })
+        
+        # Determine payment method based on phone number
+        if phone_number.startswith('071'):
+            actual_provider = 'ONEMONEY'
+            method_name = 'OneMoney'
+        elif phone_number.startswith('077'):
+            actual_provider = 'ECOCASH'
+            method_name = 'EcoCash'
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Unsupported network',
+                'message': 'Only NetOne (071) and Econet (077) numbers are supported'
+            })
+        
+        # Create Paynow payment request (simulate for now)
+        import uuid
+        poll_url = f"/api/payment-status/{uuid.uuid4()}"
+        
+        # For now, simulate successful payment initiation
+        payment_success = True
+        
+        if payment_success:
+            # Log funding attempt
+            AuditLog.objects.create(
+                user=request.user,
+                action='FUNDING_INITIATED',
+                details={
+                    'phone': phone_number,
+                    'amount': amount,
+                    'provider': actual_provider,
+                    'poll_url': poll_url
+                },
+                ip_address=request.META.get('REMOTE_ADDR')
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'{method_name} payment request sent to {phone_number}. Please check your phone and authorize the $${amount:.2f} payment.',
+                'poll_url': poll_url,
+                'payment_provider': actual_provider,
+                'amount': amount
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Payment initiation failed',
+                'message': 'Could not initiate mobile payment'
+            })
+            
+    except Exception as e:
+        print(f"Error initiating Paynow funding: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'message': 'System error occurred while initiating payment'
         }, status=500)
 
 
@@ -854,11 +960,11 @@ def customer_transactions(request):
 @require_POST
 @csrf_exempt
 def add_funds(request):
-    """Add funds to customer account"""
+    """Add funds to customer account using Paynow"""
     try:
         data = json.loads(request.body)
         amount = float(data.get('amount', 0))
-        payment_method = data.get('payment_method', 'ECOCASH')
+        phone_number = data.get('phone_number', '')
         
         if amount <= 0:
             return JsonResponse({'success': False, 'error': 'Invalid amount'}, status=400)
@@ -868,40 +974,87 @@ def add_funds(request):
         
         profile = get_or_create_profile(request.user)
         
-        # Simulate payment processing (85% success rate)
-        from random import random
-        if random() < 0.85:
-            # Success - add funds
-            balance_before = profile.account_balance
-            profile.add_funds(amount)
+        # Use user's phone number if not provided
+        if not phone_number:
+            phone_number = profile.phone_number
             
-            # Create account transaction record
-            AccountTransaction.objects.create(
+        if not phone_number:
+            return JsonResponse({
+                'success': False, 
+                'error': 'Phone number is required for mobile payment'
+            }, status=400)
+        
+        # Validate phone number format
+        if not phone_number.startswith('07'):
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid phone number format. Use format: 07xxxxxxxx'
+            }, status=400)
+        
+        # Determine payment method based on phone number
+        if phone_number.startswith('071'):
+            payment_method = 'ONEMONEY'
+            method_name = 'OneMoney'
+        elif phone_number.startswith('077') or phone_number.startswith('078'):
+            payment_method = 'ECOCASH' 
+            method_name = 'EcoCash'
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Unsupported network. Only NetOne (071) and Econet (077/078) supported.'
+            }, status=400)
+        
+        # Initiate Paynow payment
+        from payments.ecocash_api import initiate_paynow_payment
+        
+        payment_result = initiate_paynow_payment(
+            phone_number=phone_number,
+            amount=amount,
+            method=payment_method.lower(),
+            description=f"Account funding - ${amount:.2f}"
+        )
+        
+        if payment_result.get('success'):
+            # Log funding attempt
+            AuditLog.objects.create(
                 user=request.user,
-                transaction_type='CREDIT',
-                amount=Decimal(str(amount)),
-                description=f'Funds added via {payment_method}',
-                balance_before=balance_before,
-                balance_after=profile.account_balance,
+                action='FUNDING_INITIATED',
+                details={
+                    'amount': amount,
+                    'phone': phone_number,
+                    'method': payment_method,
+                    'poll_url': payment_result.get('poll_url'),
+                    'paynow_reference': payment_result.get('paynow_reference')
+                },
+                ip_address=request.META.get('REMOTE_ADDR')
             )
             
             return JsonResponse({
                 'success': True,
-                'message': f'Successfully added ${amount:.2f} to your account',
-                'new_balance': float(profile.account_balance),
-                'payment_method': payment_method
+                'message': f'{method_name} payment request sent to {phone_number}. Please check your phone and authorize the payment.',
+                'payment_method': payment_method,
+                'payment_reference': payment_result.get('payment_reference'),
+                'poll_url': payment_result.get('poll_url'),
+                'browser_url': payment_result.get('browser_url'),
+                'phone_number': phone_number,
+                'amount': amount,
+                'paynow_reference': payment_result.get('paynow_reference')
             })
         else:
-            # Simulate payment failure
+            error_msg = payment_result.get('message', 'Payment initiation failed')
+            logger.error(f"Paynow funding failed for user {request.user.id}: {error_msg}")
+            
             return JsonResponse({
                 'success': False,
-                'error': 'Payment processing failed. Please try again or use a different payment method.'
+                'error': error_msg,
+                'payment_method': payment_method
             }, status=400)
             
     except (ValueError, json.JSONDecodeError):
         return JsonResponse({'success': False, 'error': 'Invalid request data'}, status=400)
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+        logger.error(f"Add funds error: {e}")
+        return JsonResponse({'success': False, 'error': 'System error occurred'}, status=500)
 
 
 @login_required
@@ -1015,7 +1168,7 @@ def manage_user_plates(request):
 def home(request):
     """Role-based home dashboard"""
     profile = get_or_create_profile(request.user)
-    
+    print("user is a "+str(profile.role))
     if profile.role == UserRole.CUSTOMER:
         # Redirect customers to their portal
         return redirect('customer_portal')
@@ -1041,3 +1194,328 @@ def home(request):
         'daily_stats': daily_stats,
     }
     return render(request, "dashboard/home.html", context)
+
+
+# User Management Views (Admin only)
+@admin_required
+def manage_users(request):
+    """Admin view to manage users - list, create, edit, delete"""
+    from django.contrib.auth.models import User
+    from django.contrib.auth.hashers import make_password
+    
+    flash = None
+    error = None
+    
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'create':
+            username = request.POST.get('username', '').strip()
+            email = request.POST.get('email', '').strip()
+            first_name = request.POST.get('first_name', '').strip()
+            last_name = request.POST.get('last_name', '').strip()
+            password = request.POST.get('password', '').strip()
+            phone_number = request.POST.get('phone_number', '').strip()
+            role = request.POST.get('role')
+            initial_balance = request.POST.get('initial_balance', '0')
+            
+            try:
+                if not username or not password:
+                    error = 'Username and password are required'
+                elif not phone_number:
+                    error = 'Phone number is required for payment processing'
+                elif User.objects.filter(username=username).exists():
+                    error = 'Username already exists'
+                elif role not in [choice[0] for choice in UserRole.choices]:
+                    error = 'Invalid role selected'
+                else:
+                    # Create user
+                    user = User.objects.create(
+                        username=username,
+                        email=email,
+                        first_name=first_name,
+                        last_name=last_name,
+                        password=make_password(password)
+                    )
+                    
+                    # Create user profile
+                    profile = UserProfile.objects.create(
+                        user=user,
+                        role=role,
+                        phone_number=phone_number,
+                        account_balance=Decimal(initial_balance) if initial_balance else Decimal('0.00')
+                    )
+                    
+                    flash = f'User {username} created successfully'
+                    
+            except Exception as e:
+                error = f'Error creating user: {str(e)}'
+                
+        elif action == 'update':
+            user_id = request.POST.get('user_id')
+            try:
+                user = User.objects.get(id=user_id)
+                profile = get_or_create_profile(user)
+                
+                # Update user fields
+                user.email = request.POST.get('email', '').strip()
+                user.first_name = request.POST.get('first_name', '').strip()
+                user.last_name = request.POST.get('last_name', '').strip()
+                user.is_active = request.POST.get('is_active') == 'on'
+                user.save()
+                
+                # Update profile
+                role = request.POST.get('role')
+                phone_number = request.POST.get('phone_number', '').strip()
+                if role in [choice[0] for choice in UserRole.choices]:
+                    profile.role = role
+                if phone_number:
+                    profile.phone_number = phone_number
+                profile.save()
+                
+                flash = f'User {user.username} updated successfully'
+                
+            except User.DoesNotExist:
+                error = 'User not found'
+            except Exception as e:
+                error = f'Error updating user: {str(e)}'
+                
+        elif action == 'delete':
+            user_id = request.POST.get('user_id')
+            try:
+                user = User.objects.get(id=user_id)
+                if user.id == request.user.id:
+                    error = 'Cannot delete your own account'
+                else:
+                    username = user.username
+                    user.delete()
+                    flash = f'User {username} deleted successfully'
+            except User.DoesNotExist:
+                error = 'User not found'
+            except Exception as e:
+                error = f'Error deleting user: {str(e)}'
+                
+        elif action == 'reset_password':
+            user_id = request.POST.get('user_id')
+            new_password = request.POST.get('new_password', '').strip()
+            try:
+                if not new_password:
+                    error = 'New password is required'
+                else:
+                    user = User.objects.get(id=user_id)
+                    user.password = make_password(new_password)
+                    user.save()
+                    # Reset TOTP for security
+                    profile = get_or_create_profile(user)
+                    profile.totp_enabled = False
+                    profile.totp_secret = None
+                    profile.save()
+                    flash = f'Password reset for {user.username}. TOTP has been disabled.'
+            except User.DoesNotExist:
+                error = 'User not found'
+            except Exception as e:
+                error = f'Error resetting password: {str(e)}'
+    
+    # Get all users with their profiles
+    from django.contrib.auth.models import User
+    users = User.objects.select_related('userprofile').all().order_by('username')
+    
+    # Handle search
+    search_query = request.GET.get('q', '').strip()
+    if search_query:
+        users = users.filter(
+            Q(username__icontains=search_query) |
+            Q(email__icontains=search_query) |
+            Q(first_name__icontains=search_query) |
+            Q(last_name__icontains=search_query)
+        )
+    
+    context = {
+        'users': users,
+        'search_query': search_query,
+        'user_roles': UserRole.choices,
+        'flash': flash,
+        'error': error,
+    }
+    return render(request, 'dashboard/manage_users.html', context)
+
+
+@admin_required  
+def user_detail(request, user_id):
+    """Admin view to see detailed information about a user"""
+    from django.contrib.auth.models import User
+    
+    try:
+        user = User.objects.get(id=user_id)
+        profile = get_or_create_profile(user)
+        
+        # Get user's plates
+        user_plates = PlateRegistration.objects.filter(user=user)
+        
+        # Get user's transactions
+        user_transactions = Transaction.objects.filter(user=user).order_by('-timestamp')[:20]
+        
+        # Get user's account transactions
+        account_transactions = AccountTransaction.objects.filter(user=user).order_by('-timestamp')[:20]
+        
+        context = {
+            'selected_user': user,
+            'profile': profile,
+            'user_plates': user_plates,
+            'user_transactions': user_transactions,
+            'account_transactions': account_transactions,
+        }
+        return render(request, 'dashboard/user_detail.html', context)
+        
+    except User.DoesNotExist:
+        return redirect('manage_users')
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def check_payment_status(request):
+    """Check Paynow payment status using poll URL"""
+    from payments.ecocash_api import check_paynow_payment_status
+    
+    try:
+        data = json.loads(request.body)
+        poll_url = data.get('poll_url')
+        
+        if not poll_url:
+            return JsonResponse({
+                'success': False,
+                'message': 'Poll URL required',
+                'status': 'ERROR'
+            })
+        
+        # Check payment status with Paynow
+        payment_status = check_paynow_payment_status(poll_url)
+        
+        # If payment was successful, update user's account balance
+        if payment_status.get('success') and payment_status.get('status') == 'COMPLETED':
+            # Find the pending transaction and update user balance
+            amount = payment_status.get('amount', 0)
+            paynow_ref = payment_status.get('paynow_reference', '')
+            
+            # Update user's account balance
+            if hasattr(request.user, 'userprofile'):
+                profile = request.user.userprofile
+                profile.account_balance += amount
+                profile.save()
+                
+                # Create account transaction record
+                AccountTransaction.objects.create(
+                    user=request.user,
+                    transaction_type='DEPOSIT',
+                    amount=amount,
+                    description=f'Paynow payment - Ref: {paynow_ref}',
+                    balance_after=profile.account_balance
+                )
+                
+                payment_status['new_balance'] = float(profile.account_balance)
+        
+        return JsonResponse(payment_status)
+        
+    except Exception as e:
+        logger.error(f"Error checking payment status: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': 'Error checking payment status',
+            'status': 'ERROR'
+        })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def paynow_callback(request):
+    """
+    Handle Paynow payment callback/webhook
+    This endpoint is called by Paynow when payment status changes
+    """
+    try:
+        # Parse Paynow callback data
+        callback_data = {}
+        if request.content_type == 'application/x-www-form-urlencoded':
+            for key, value in request.POST.items():
+                callback_data[key] = value
+        else:
+            # Handle raw POST data
+            for line in request.body.decode('utf-8').split('&'):
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    callback_data[key] = value
+        
+        logger.info(f"Paynow callback received: {callback_data}")
+        
+        # Extract relevant data
+        reference = callback_data.get('reference', '')
+        status = callback_data.get('status', '').lower()
+        amount = float(callback_data.get('amount', '0'))
+        paynow_reference = callback_data.get('paynowreference', '')
+        
+        if status == 'paid' and amount > 0:
+            # Find user by reference or phone number
+            # The reference should contain user info or we can look up by audit log
+            
+            try:
+                # Look up the funding attempt in audit logs
+                audit_log = AuditLog.objects.filter(
+                    action='FUNDING_INITIATED',
+                    details__paynow_reference=paynow_reference
+                ).first()
+                
+                if audit_log:
+                    user = audit_log.user
+                    profile = user.userprofile
+                    
+                    # Check if payment was already processed
+                    existing_transaction = AccountTransaction.objects.filter(
+                        user=user,
+                        description__contains=f'Paynow - {paynow_reference}'
+                    ).exists()
+                    
+                    if not existing_transaction:
+                        # Add funds to user account
+                        balance_before = profile.account_balance
+                        profile.account_balance += Decimal(str(amount))
+                        profile.save()
+                        
+                        # Create account transaction record
+                        AccountTransaction.objects.create(
+                            user=user,
+                            transaction_type='CREDIT',
+                            amount=Decimal(str(amount)),
+                            description=f'Paynow payment - {paynow_reference}',
+                            reference=reference,
+                            balance_before=balance_before,
+                            balance_after=profile.account_balance,
+                            timestamp=timezone.now()
+                        )
+                        
+                        # Log successful payment
+                        AuditLog.objects.create(
+                            user=user,
+                            action='FUNDING_COMPLETED',
+                            details={
+                                'amount': amount,
+                                'paynow_reference': paynow_reference,
+                                'reference': reference,
+                                'new_balance': float(profile.account_balance)
+                            },
+                            ip_address=request.META.get('REMOTE_ADDR')
+                        )
+                        
+                        logger.info(f"Payment processed: ${amount} added to user {user.id}, new balance: ${profile.account_balance}")
+                    else:
+                        logger.warning(f"Duplicate payment callback for reference {paynow_reference}")
+                else:
+                    logger.warning(f"No funding attempt found for paynow reference: {paynow_reference}")
+                    
+            except Exception as e:
+                logger.error(f"Error processing payment callback: {e}")
+                
+        # Always return OK to Paynow (they expect this response)
+        return JsonResponse({'status': 'OK'})
+        
+    except Exception as e:
+        logger.error(f"Paynow callback error: {e}")
+        return JsonResponse({'status': 'ERROR'})

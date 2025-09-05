@@ -34,18 +34,27 @@
                 <a href="/" class="text-white hover:bg-blue-700 px-3 py-2 rounded-md text-sm font-medium">
                   Dashboard
                 </a>
+                {% if user.is_authenticated and user.userprofile.role in 'ADMIN,OPERATOR' %}
                 <a href="/anpr/" class="text-blue-200 hover:bg-blue-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
                   ANPR
                 </a>
                 <a href="/registrations/" class="text-blue-200 hover:bg-blue-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
                   Registrations
                 </a>
+                {% endif %}
+                {% if user.is_authenticated and user.userprofile.role == 'ADMIN' %}
+                <a href="/users/" class="text-blue-200 hover:bg-blue-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
+                  Users
+                </a>
+                {% endif %}
                 <a href="/totp-setup/" class="text-blue-200 hover:bg-blue-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
                   2FA Setup
                 </a>
+                {% if user.is_superuser %}
                 <a href="/admin/" class="text-blue-200 hover:bg-blue-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
                   Admin
                 </a>
+                {% endif %}
               </div>
             </div>
           </div>

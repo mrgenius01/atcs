@@ -49,16 +49,8 @@
         </div>
 
         <!-- Actions -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-          <!-- Toggle -->
-          <label class="inline-flex items-center cursor-pointer select-none">
-            <input id="use-gemini-toggle" type="checkbox" class="sr-only">
-            <span class="mr-3 text-sm text-gray-700">Use Gemini by default</span>
-            <span class="relative">
-              <span class="block w-10 h-6 bg-gray-300 rounded-full shadow-inner transition" id="toggle-track"></span>
-              <span class="dot absolute left-0 top-0 h-6 w-6 bg-white rounded-full shadow transform transition" id="toggle-thumb"></span>
-            </span>
-          </label>
+        <div class="flex justify-center">
+
           <button type="submit" 
                   class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                   id="process-btn">
@@ -67,14 +59,7 @@
             </svg>
             <span id="process-btn-text">Process (OpenCV/EasyOCR)</span>
           </button>
-          <button type="button" 
-                  class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50"
-                  id="gemini-btn">
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            Test with Gemini
-          </button>
+
         </div>
       </form>
     </div>
@@ -134,10 +119,6 @@ const dropZone = document.getElementById('drop-zone');
 const selectedFile = document.getElementById('selected-file');
 const previewWrapper = document.getElementById('preview-wrapper');
 const previewImg = document.getElementById('preview-img');
-const useGeminiToggle = document.getElementById('use-gemini-toggle');
-const processBtnText = document.getElementById('process-btn-text');
-const toggleTrack = document.getElementById('toggle-track');
-const toggleThumb = document.getElementById('toggle-thumb');
 
 function showPreview(file) {
   if (!file) return;
@@ -190,7 +171,7 @@ async function processImage(endpoint) {
   return new Promise((resolve, reject) => {
     reader.onload = async function(ev) {
       const base64Image = ev.target.result;
-      const btn = endpoint.includes('gemini') ? document.getElementById('gemini-btn') : document.getElementById('process-btn');
+      const btn = document.getElementById('process-btn');
       const originalText = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<svg class="animate-spin h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Processing...';
@@ -206,7 +187,7 @@ async function processImage(endpoint) {
           result.success ? {
             success: true,
             plate_number: result.plate || result.plate_number || result.plateNumber || '',
-            confidence: (result.confidence || 0) * (endpoint.includes('gemini') ? 100 : 1),
+            confidence: result.confidence || 0,  // Keep confidence as decimal (0.0-1.0)
             processing_time: result.processing_time || 0,
             validation: result.validation || {}
           } : result
@@ -227,38 +208,20 @@ async function processImage(endpoint) {
 
 document.getElementById('upload-form').addEventListener('submit', async function(e) {
   e.preventDefault();
-  const endpoint = useGeminiToggle.checked ? '/api/gemini-plate/' : '/api/anpr/process/';
-  await processImage(endpoint);
+  await processImage('/api/gemini-plate/');
   // Refresh recent results
   loadRecentResults();
 });
 
-document.getElementById('gemini-btn').addEventListener('click', async function() {
-  await processImage('/api/gemini-plate/');
-});
 
-// Toggle UI behavior
-function renderToggle() {
-  if (useGeminiToggle.checked) {
-    processBtnText.textContent = 'Process (Gemini)';
-    toggleTrack.classList.remove('bg-gray-300');
-    toggleTrack.classList.add('bg-purple-600');
-    toggleThumb.classList.add('translate-x-4');
-  } else {
-    processBtnText.textContent = 'Process (OpenCV/EasyOCR)';
-    toggleTrack.classList.add('bg-gray-300');
-    toggleTrack.classList.remove('bg-purple-600');
-    toggleThumb.classList.remove('translate-x-4');
-  }
-}
-useGeminiToggle.addEventListener('change', renderToggle);
-renderToggle();
+
+
 
 function processTransaction(plateData) {
   console.log('Processing transaction for:', plateData);
   
   // Show processing state
-  document.getElementById('results').innerHTML = `
+  document.getElementById('results-content').innerHTML = `
     <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4">
       <div class="flex">
         <div class="flex-shrink-0">
@@ -284,7 +247,7 @@ function processTransaction(plateData) {
     },
     body: JSON.stringify({
       plate_number: plateData.plate_number,
-      confidence: plateData.confidence / 100, // Convert percentage to decimal
+      confidence: plateData.confidence, // Confidence is already decimal (0.0-1.0)
       toll_amount: 2.50,
       location: 'Main Toll Plaza'
     })
@@ -301,45 +264,256 @@ function processTransaction(plateData) {
 }
 
 function displayTransactionResult(result) {
-  const statusColor = result.success ? 'green' : 'red';
+  const statusColor = result.success ? (result.requires_funding ? 'yellow' : 'green') : 'red';
   const statusIcon = result.success ? '✓' : '✗';
   
-  document.getElementById('results').innerHTML = `
-    <div class="bg-${statusColor}-50 border border-${statusColor}-200 rounded-md p-4">
+  var html = '<div class="bg-' + statusColor + '-50 border border-' + statusColor + '-200 rounded-md p-4">' +
+    '<div class="flex">' +
+      '<div class="flex-shrink-0">' +
+        '<span class="text-' + statusColor + '-400 text-xl">' + statusIcon + '</span>' +
+      '</div>' +
+      '<div class="ml-3">' +
+        '<h3 class="text-sm font-medium text-' + statusColor + '-800">' +
+          (result.success ? (result.requires_funding ? 'Payment Processed - Fund Account Required' : 'Transaction Completed') : 'Transaction Failed') +
+        '</h3>' +
+        '<div class="mt-2 text-sm text-' + statusColor + '-700">' +
+          '<p><strong>Plate:</strong> ' + result.plate_number + '</p>' +
+          '<p><strong>Amount:</strong> $' + result.amount + '</p>' +
+          '<p><strong>Status:</strong> ' + result.status + '</p>' +
+          '<p><strong>Transaction ID:</strong> ' + result.transaction_id + '</p>';
+          
+  if (result.payment_method) {
+    html += '<p><strong>Payment Method:</strong> ' + result.payment_method + '</p>';
+  }
+  
+  if (result.balance !== undefined) {
+    const balanceColor = result.balance < 0 ? 'text-red-600' : 'text-green-600';
+    html += '<p><strong>Account Balance:</strong> <span class="' + balanceColor + '">$' + result.balance.toFixed(2) + '</span></p>';
+  }
+  
+  html += '<p><strong>Blockchain Hash:</strong> ' + (result.blockchain_hash ? result.blockchain_hash.substring(0, 16) + '...' : 'N/A') + '</p>' +
+        '</div>';
+        
+  if (result.message) {
+    html += '<p class="mt-2 text-sm text-' + statusColor + '-600">' + result.message + '</p>';
+  }
+  
+  // Add funding section if account needs funding
+  if (result.requires_funding && result.phone_number) {
+    html += '<div class="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-md">' +
+      '<h4 class="text-sm font-medium text-orange-800 mb-2">Fund Your Account</h4>' +
+      '<p class="text-sm text-orange-700 mb-3">Your account balance is low. Add funds using ' + result.payment_provider + ':</p>' +
+      '<div class="flex items-center space-x-2">' +
+        '<select id="funding-amount" class="rounded border-gray-300 text-sm">' +
+          '<option value="10">$10.00</option>' +
+          '<option value="20">$20.00</option>' +
+          '<option value="50">$50.00</option>' +
+          '<option value="100">$100.00</option>' +
+        '</select>' +
+        '<button onclick="initiateFunding(\'' + result.phone_number + '\', \'' + result.payment_provider + '\')" ' +
+          'class="px-4 py-2 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">' +
+          'Add Funds via ' + result.payment_provider +
+        '</button>' +
+      '</div>' +
+      '<p class="text-xs text-orange-600 mt-2">Phone: ' + result.phone_number + '</p>' +
+    '</div>';
+  }
+  
+  html += '</div>' +
+    '</div>' +
+  '</div>';
+  
+  document.getElementById('results-content').innerHTML = html;
+}
+
+function displayTransactionError(error) {
+  document.getElementById('results-content').innerHTML = 
+    '<div class="bg-red-50 border border-red-200 rounded-md p-4">' +
+      '<div class="flex">' +
+        '<div class="flex-shrink-0">' +
+          '<span class="text-red-400 text-xl">✗</span>' +
+        '</div>' +
+        '<div class="ml-3">' +
+          '<h3 class="text-sm font-medium text-red-800">Transaction Error</h3>' +
+          '<p class="mt-2 text-sm text-red-600">Failed to process transaction: ' + (error.message || error) + '</p>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+function initiateFunding(phoneNumber, paymentProvider) {
+  const amount = document.getElementById('funding-amount').value;
+  const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  
+  // Show loading state
+  document.getElementById('results-content').innerHTML = `
+    <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
       <div class="flex">
         <div class="flex-shrink-0">
-          <span class="text-${statusColor}-400 text-xl">${statusIcon}</span>
+          <svg class="animate-spin h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
         </div>
         <div class="ml-3">
-          <h3 class="text-sm font-medium text-${statusColor}-800">
-            ${result.success ? 'Transaction Completed' : 'Transaction Failed'}
+          <p class="text-sm font-medium text-blue-800">Initiating Payment</p>
+          <p class="text-sm text-blue-700">Connecting to ${paymentProvider} for $${amount} payment...</p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Call Paynow funding endpoint
+  fetch('/api/initiate-paynow-funding/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrfToken
+    },
+    body: JSON.stringify({
+      phone_number: phoneNumber,
+      amount: parseFloat(amount),
+      payment_provider: paymentProvider
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log('Paynow funding result:', data);
+    displayFundingResult(data);
+  })
+  .catch(error => {
+    console.error('Funding error:', error);
+    displayFundingError(error);
+  });
+}
+
+function displayFundingResult(result) {
+  const successClasses = result.success ? 
+    'bg-green-50 border-green-200 text-green-400 text-green-800 text-green-700 text-green-600 bg-green-600' :
+    'bg-red-50 border-red-200 text-red-400 text-red-800 text-red-700 text-red-600 bg-red-600';
+  
+  const statusIcon = result.success ? '✓' : '✗';
+  
+  document.getElementById('results-content').innerHTML = `
+    <div class="${result.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'} rounded-md p-4">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <span class="${result.success ? 'text-green-400' : 'text-red-400'} text-xl">${statusIcon}</span>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium ${result.success ? 'text-green-800' : 'text-red-800'}">
+            ${result.success ? 'Payment Request Sent' : 'Payment Failed'}
           </h3>
-          <div class="mt-2 text-sm text-${statusColor}-700">
-            <p><strong>Plate:</strong> ${result.plate_number}</p>
-            <p><strong>Amount:</strong> $${result.amount}</p>
-            <p><strong>Status:</strong> ${result.status}</p>
-            <p><strong>Transaction ID:</strong> ${result.transaction_id}</p>
-            ${result.payment_method ? `<p><strong>Payment Method:</strong> ${result.payment_method}</p>` : ''}
-            ${result.balance_remaining !== undefined ? `<p><strong>Balance Remaining:</strong> $${result.balance_remaining}</p>` : ''}
-            <p><strong>Blockchain Hash:</strong> ${result.blockchain_hash ? result.blockchain_hash.substring(0, 16) + '...' : 'N/A'}</p>
+          <div class="mt-2 text-sm ${result.success ? 'text-green-700' : 'text-red-700'}">
+            ${result.message || 'Payment processing completed'}
           </div>
-          ${result.message ? `<p class="mt-2 text-sm text-${statusColor}-600">${result.message}</p>` : ''}
+          ${result.poll_url ? `
+            <div class="mt-3">
+              <p class="text-sm ${result.success ? 'text-green-600' : 'text-red-600'}">
+                Check your phone for the payment prompt and authorize the transaction.
+              </p>
+              <button onclick="checkPaymentStatus('${result.poll_url}')" 
+                      class="mt-2 px-3 py-2 ${result.success ? 'bg-green-600' : 'bg-red-600'} text-white rounded text-sm hover:opacity-90">
+                Check Payment Status
+              </button>
+            </div>
+          ` : ''}
         </div>
       </div>
     </div>
   `;
 }
 
-function displayTransactionError(error) {
-  document.getElementById('results').innerHTML = `
+function displayFundingError(error) {
+  document.getElementById('results-content').innerHTML = `
     <div class="bg-red-50 border border-red-200 rounded-md p-4">
       <div class="flex">
         <div class="flex-shrink-0">
           <span class="text-red-400 text-xl">✗</span>
         </div>
         <div class="ml-3">
-          <h3 class="text-sm font-medium text-red-800">Transaction Error</h3>
-          <p class="mt-2 text-sm text-red-600">Failed to process transaction: ${error.message || error}</p>
+          <h3 class="text-sm font-medium text-red-800">Funding Error</h3>
+          <p class="mt-2 text-sm text-red-600">Failed to initiate payment: ${error.message || error}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function checkPaymentStatus(pollUrl) {
+  const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  
+  // Show checking status
+  document.getElementById('results-content').innerHTML = `
+    <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <svg class="animate-spin h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        <div class="ml-3">
+          <p class="text-sm font-medium text-blue-800">Checking Payment Status</p>
+          <p class="text-sm text-blue-700">Please wait while we verify your payment...</p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Call real Paynow API status check
+  fetch('/api/check-payment-status/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrfToken
+    },
+    body: JSON.stringify({
+      poll_url: pollUrl
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log('Payment status result:', data);
+    displayPaymentStatusResult(data);
+  })
+  .catch(error => {
+    console.error('Payment status check error:', error);
+    displayPaymentStatusResult({
+      success: false,
+      message: 'Unable to check payment status. Please try again.',
+      status: 'ERROR'
+    });
+  });
+}
+
+function displayPaymentStatusResult(result) {
+  const statusIcon = result.success ? '✓' : '✗';
+  
+  document.getElementById('results-content').innerHTML = `
+    <div class="${result.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'} rounded-md p-4">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <span class="${result.success ? 'text-green-400' : 'text-red-400'} text-xl">${statusIcon}</span>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium ${result.success ? 'text-green-800' : 'text-red-800'}">
+            ${result.success ? 'Payment Successful' : 'Payment Failed'}
+          </h3>
+          <div class="mt-2 text-sm ${result.success ? 'text-green-700' : 'text-red-700'}">
+            <p>${result.message}</p>
+            ${result.new_balance !== undefined ? `
+              <p class="mt-1"><strong>New Account Balance:</strong> $${result.new_balance.toFixed(2)}</p>
+            ` : ''}
+          </div>
+          ${result.success ? `
+            <div class="mt-3">
+              <button onclick="location.reload()" 
+                      class="px-4 py-2 ${result.success ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} text-white rounded text-sm">
+                Continue Processing
+              </button>
+            </div>
+          ` : ''}
         </div>
       </div>
     </div>
@@ -349,119 +523,124 @@ function displayTransactionError(error) {
 function formatResults(result) {
   if (result.success) {
     const validation = result.validation || {};
-    const countryBadge = validation.country ? 
-      `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-        ${validation.country}
-      </span>` : '';
     
-    const formatBadge = validation.format ? 
-      `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-        ${validation.format.replace('_', ' ')}
-      </span>` : '';
-    
-  // If confidence is high enough, automatically process transaction
-  if (result.confidence > 70) {
-      setTimeout(() => processTransaction(result), 1500);
+    // Build country badge
+    var countryBadge = '';
+    if (validation.country) {
+      countryBadge = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">' +
+        validation.country +
+      '</span>';
     }
     
-    return `
-      <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-        <div class="flex items-center">
-          <svg class="w-6 h-6 text-green-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-          <div class="flex-1">
-            <h3 class="text-lg font-medium text-green-800">License Plate Detected</h3>
-            <div class="mt-2">
-              <p class="text-2xl font-bold text-green-900">${result.plate_number}</p>
-              <div class="mt-2 flex items-center space-x-2">
-                ${countryBadge}
-                ${formatBadge}
-              </div>
-              <div class="mt-3 grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span class="text-gray-500">Confidence:</span>
-                  <span class="font-medium text-green-800">${result.confidence.toFixed(1)}%</span>
-                </div>
-                <div>
-                  <span class="text-gray-500">Processing Time:</span>
-                  <span class="font-medium text-green-800">${result.processing_time.toFixed(2)}s</span>
-                </div>
-                <div>
-                  <span class="text-gray-500">Status:</span>
-                  <span class="font-medium text-green-800">${validation.valid ? 'Valid Format' : 'Unknown Format'}</span>
-                </div>
-              </div>
-              ${result.confidence > 70 ? 
+    // Build format badge
+    var formatBadge = '';
+    if (validation.format) {
+      formatBadge = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">' +
+        validation.format.replace('_', ' ') +
+      '</span>';
+    }
+    
+    // If confidence is high enough (0.7 out of 1.0 = 70%), automatically process transaction
+    if (result.confidence >= 0.7) {
+      setTimeout(function() { processTransaction(result); }, 1500);
+    }
+    
+    var html = '<div class="bg-green-50 border border-green-200 rounded-lg p-4">' +
+        '<div class="flex items-center">' +
+          '<svg class="w-6 h-6 text-green-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>' +
+          '</svg>' +
+          '<div class="flex-1">' +
+            '<h3 class="text-lg font-medium text-green-800">License Plate Detected</h3>' +
+            '<div class="mt-2">' +
+              '<p class="text-2xl font-bold text-green-900">' + result.plate_number + '</p>' +
+              '<div class="mt-2 flex items-center space-x-2">' +
+                countryBadge +
+                formatBadge +
+              '</div>' +
+              '<div class="mt-3 grid grid-cols-3 gap-4 text-sm">' +
+                '<div>' +
+                  '<span class="text-gray-500">Confidence:</span>' +
+                  '<span class="font-medium text-green-800">' + (result.confidence * 100).toFixed(1) + '%</span>' +
+                '</div>' +
+                '<div>' +
+                  '<span class="text-gray-500">Processing Time:</span>' +
+                  '<span class="font-medium text-green-800">' + result.processing_time.toFixed(2) + 's</span>' +
+                '</div>' +
+                '<div>' +
+                  '<span class="text-gray-500">Status:</span>' +
+                  '<span class="font-medium text-green-800">' + (validation.valid ? 'Valid Format' : 'Unknown Format') + '</span>' +
+                '</div>' +
+              '</div>' +
+              (result.confidence >= 0.7 ? 
                 '<p class="mt-3 text-sm text-green-600">✓ High confidence - Processing transaction automatically...</p>' :
                 '<p class="mt-3 text-sm text-yellow-600">⚠ Low confidence - Manual review required</p>'
-              }
-            </div>
-          </div>
-        </div>
-      </div>
-      ${result.confidence <= 70 ? `
-        <div class="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-4">
-          <p class="text-sm text-yellow-800 mb-2">Low confidence. You can correct the plate and retry payment:</p>
-          <div class="flex items-center space-x-2">
-            <input id="manual-plate" value="${result.plate_number}" class="flex-1 rounded-md border-gray-300 focus:ring-atcs-blue focus:border-atcs-blue text-sm" />
-            <button id="manual-submit" class="px-3 py-2 bg-atcs-blue text-white rounded text-sm">Submit Correction</button>
-          </div>
-        </div>
-        <script>
-          (function(){
-            const btn = document.getElementById('manual-submit');
-            if (btn) {
-              btn.addEventListener('click', async () => {
-                const plate = document.getElementById('manual-plate').value.trim();
-                if (!plate) return;
-                try {
-                  // Get a transaction id if available in response
-                  // If not, we first create a placeholder transaction via process-vehicle-transaction
-                  const initResp = await fetch('/api/process-vehicle-transaction/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
-                    body: JSON.stringify({ plate_number: plate, confidence: 0.7, toll_amount: 2.50, location: 'Manual Review' })
-                  });
-                  const initData = await initResp.json();
-                  if (!initData.transaction_id) {
-                    alert(initData.error || 'Failed to create transaction');
-                    return;
-                  }
-                  const resp = await fetch('/api/transactions/manual-review/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
-                    body: JSON.stringify({ transaction_id: initData.transaction_id, plate_number: plate })
-                  });
-                  const data = await resp.json();
-                  if (!data.success) {
-                    alert(data.error || 'Payment failed');
-                  } else {
-                    alert('Payment completed');
-                  }
-                } catch (e) {
-                  alert('Error: ' + e.message);
-                }
+              ) +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+      
+    if (result.confidence < 0.7) {
+      html += '<div class="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-4">' +
+        '<p class="text-sm text-yellow-800 mb-2">Low confidence. You can correct the plate and retry payment:</p>' +
+        '<div class="flex items-center space-x-2">' +
+          '<input id="manual-plate" value="' + result.plate_number + '" class="flex-1 rounded-md border-gray-300 focus:ring-atcs-blue focus:border-atcs-blue text-sm" />' +
+          '<button id="manual-submit" class="px-3 py-2 bg-atcs-blue text-white rounded text-sm">Submit Correction</button>' +
+        '</div>' +
+      '</div>';
+      
+      // Add the script separately to avoid concatenation issues
+      setTimeout(function() {
+        const btn = document.getElementById('manual-submit');
+        if (btn) {
+          btn.addEventListener('click', async function() {
+            const plate = document.getElementById('manual-plate').value.trim();
+            if (!plate) return;
+            try {
+              const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+              const initResp = await fetch('/api/process-vehicle-transaction/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ plate_number: plate, confidence: 0.7, toll_amount: 2.50, location: 'Manual Review' })
               });
+              const initData = await initResp.json();
+              if (!initData.transaction_id) {
+                alert(initData.error || 'Failed to create transaction');
+                return;
+              }
+              const resp = await fetch('/api/transactions/manual-review/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ transaction_id: initData.transaction_id, plate_number: plate })
+              });
+              const data = await resp.json();
+              if (!data.success) {
+                alert(data.error || 'Payment failed');
+              } else {
+                alert('Payment completed');
+              }
+            } catch (e) {
+              alert('Error: ' + e.message);
             }
-          })();
-        </script>
-      ` : ''}
-    `;
+          });
+        }
+      }, 100);
+    }
+      
+    return html;
   } else {
-    return `
-      <div class="bg-red-50 border border-red-200 rounded-lg p-4">
-        <div class="flex items-center">
-          <svg class="w-6 h-6 text-red-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-          <div>
-            <h3 class="text-lg font-medium text-red-800">Detection Failed</h3>
-            <p class="text-red-700 mt-1">${result.message || result.error || 'No license plate detected'}</p>
-          </div>
-        </div>
-      </div>
-    `;
+    return '<div class="bg-red-50 border border-red-200 rounded-lg p-4">' +
+        '<div class="flex items-center">' +
+          '<svg class="w-6 h-6 text-red-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>' +
+          '</svg>' +
+          '<div>' +
+            '<h3 class="text-lg font-medium text-red-800">Detection Failed</h3>' +
+            '<p class="text-red-700 mt-1">' + (result.message || result.error || 'No license plate detected') + '</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
   }
 }
 
@@ -471,29 +650,30 @@ async function loadRecentResults() {
     const data = await response.json();
     const tbody = document.getElementById('anpr-results');
     
-    tbody.innerHTML = data.results.map(result => `
-      <tr>
-        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-          ${result.detected_plate || 'N/A'}
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-          ${(result.confidence).toFixed(1)}%
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-          ${result.processing_time.toFixed(3)}s
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-          ${new Date(result.timestamp).toLocaleString()}
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap">
-          <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-            result.detected_plate ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }">
-            ${result.detected_plate ? 'Success' : 'Failed'}
-          </span>
-        </td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = data.results.map(result => {
+      const statusClass = result.detected_plate ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+      const statusText = result.detected_plate ? 'Success' : 'Failed';
+      
+      return '<tr>' +
+        '<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">' +
+          (result.detected_plate || 'N/A') +
+        '</td>' +
+        '<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">' +
+          (result.confidence * 100).toFixed(1) + '%' +
+        '</td>' +
+        '<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">' +
+          result.processing_time.toFixed(3) + 's' +
+        '</td>' +
+        '<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">' +
+          new Date(result.timestamp).toLocaleString() +
+        '</td>' +
+        '<td class="px-6 py-4 whitespace-nowrap">' +
+          '<span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ' + statusClass + '">' +
+            statusText +
+          '</span>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
   } catch (error) {
     console.error('Failed to load recent results:', error);
   }

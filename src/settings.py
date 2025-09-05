@@ -119,3 +119,9 @@ if DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = False
     SECURE_BROWSER_XSS_FILTER = False
     X_FRAME_OPTIONS = 'SAMEORIGIN'
+
+# Paynow API Configuration
+PAYNOW_ID = os.getenv('PAYNOW_INTEGRATION_ID', '12345')  # Replace with your actual Paynow Integration ID
+PAYNOW_KEY = os.getenv('PAYNOW_INTEGRATION_KEY', 'your-paynow-key')  # Replace with your actual Paynow Integration Key
+PAYNOW_EMAIL = os.getenv('PAYNOW_EMAIL', 'admin@atcs.com')  # Your registered email with Paynow
+BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')  # Your application base URL

@@ -8,9 +8,11 @@ from dashboard.views import (
     anpr_page, anpr_process_api, anpr_results_api,
     process_vehicle_transaction, transaction_status, recent_transactions,
     register_plate, plate_info, list_registrations, manage_registrations, 
-    gemini_plate_api, manual_review_update,
+    gemini_plate_api, manual_review_update, initiate_paynow_funding, check_payment_status, paynow_callback,
     # Customer portal views
-    customer_portal, customer_transactions, add_funds, account_statements, manage_user_plates
+    customer_portal, customer_transactions, add_funds, account_statements, manage_user_plates,
+    # User management views
+    manage_users, user_detail
 )
 
 urlpatterns = [
@@ -35,6 +37,9 @@ urlpatterns = [
     path("registrations/", manage_registrations, name="manage_registrations"),
     path("api/gemini-plate/", gemini_plate_api, name="gemini_plate_api"),
     path("api/transactions/manual-review/", manual_review_update, name="manual_review_update"),
+    path("api/initiate-paynow-funding/", initiate_paynow_funding, name="initiate_paynow_funding"),
+    path("api/check-payment-status/", check_payment_status, name="check_payment_status"),
+    path("paynow/callback/", paynow_callback, name="paynow_callback"),
     
     # Customer Portal URLs
     path("portal/", customer_portal, name="customer_portal"),
@@ -42,6 +47,10 @@ urlpatterns = [
     path("portal/statements/", account_statements, name="account_statements"),
     path("portal/plates/", manage_user_plates, name="manage_user_plates"),
     path("api/add-funds/", add_funds, name="add_funds"),
+    
+    # User Management URLs (Admin only)
+    path("users/", manage_users, name="manage_users"),
+    path("users/<int:user_id>/", user_detail, name="user_detail"),
 ]
 
 if settings.DEBUG:

@@ -1,0 +1,294 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}{{ selected_user.username }} - User Detail - Secure ATCS{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex justify-between items-center">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">User Details: {{ selected_user.username }}</h1>
+          <p class="mt-1 text-sm text-gray-600">Complete information and activity for this user</p>
+        </div>
+        <div class="flex space-x-3">
+          <a href="{% url 'manage_users' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+            </svg>
+            Back to Users
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Information Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <!-- Basic Info Card -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-medium text-gray-900">Basic Information</h2>
+      </div>
+      <div class="px-6 py-4">
+        <div class="space-y-4">
+          <div class="flex items-center">
+            <div class="flex-shrink-0 h-16 w-16">
+              <div class="h-16 w-16 rounded-full bg-gray-300 flex items-center justify-center">
+                <span class="text-xl font-medium text-gray-700">{{ selected_user.username|slice:":2"|upper }}</span>
+              </div>
+            </div>
+            <div class="ml-4">
+              <div class="text-lg font-medium text-gray-900">{{ selected_user.get_full_name|default:selected_user.username }}</div>
+              <div class="text-sm text-gray-500">@{{ selected_user.username }}</div>
+            </div>
+          </div>
+          
+          <div class="border-t border-gray-200 pt-4">
+            <dl class="space-y-2">
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Email</dt>
+                <dd class="text-sm text-gray-900">{{ selected_user.email|default:"-" }}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Phone</dt>
+                <dd class="text-sm text-gray-900">{{ profile.phone_number|default:"-" }}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Date Joined</dt>
+                <dd class="text-sm text-gray-900">{{ selected_user.date_joined|date:"M d, Y" }}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Last Login</dt>
+                <dd class="text-sm text-gray-900">{{ selected_user.last_login|date:"M d, Y H:i"|default:"Never" }}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Role & Status Card -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-medium text-gray-900">Role & Status</h2>
+      </div>
+      <div class="px-6 py-4">
+        <div class="space-y-4">
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Role</dt>
+            <dd class="mt-1">
+              <span class="inline-flex px-3 py-1 text-sm font-semibold rounded-full 
+                {% if profile.role == 'ADMIN' %}bg-red-100 text-red-800
+                {% elif profile.role == 'OPERATOR' %}bg-blue-100 text-blue-800
+                {% elif profile.role == 'CUSTOMER' %}bg-green-100 text-green-800
+                {% else %}bg-gray-100 text-gray-800{% endif %}">
+                {{ profile.get_role_display|default:"No Role" }}
+              </span>
+            </dd>
+          </div>
+          
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Account Status</dt>
+            <dd class="mt-1">
+              <span class="inline-flex px-3 py-1 text-sm font-semibold rounded-full {{ selected_user.is_active|yesno:'bg-green-100 text-green-800,bg-red-100 text-red-800' }}">
+                {{ selected_user.is_active|yesno:'Active,Inactive' }}
+              </span>
+            </dd>
+          </div>
+          
+          <div>
+            <dt class="text-sm font-medium text-gray-500">2FA Status</dt>
+            <dd class="mt-1">
+              <span class="inline-flex px-3 py-1 text-sm font-semibold rounded-full {{ profile.totp_enabled|yesno:'bg-green-100 text-green-800,bg-yellow-100 text-yellow-800' }}">
+                {{ profile.totp_enabled|yesno:'Enabled,Disabled' }}
+              </span>
+            </dd>
+          </div>
+          
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Staff Status</dt>
+            <dd class="mt-1">
+              <span class="inline-flex px-3 py-1 text-sm font-semibold rounded-full {{ selected_user.is_staff|yesno:'bg-blue-100 text-blue-800,bg-gray-100 text-gray-800' }}">
+                {{ selected_user.is_staff|yesno:'Staff,Regular User' }}
+              </span>
+            </dd>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account Balance Card -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-medium text-gray-900">Account Balance</h2>
+      </div>
+      <div class="px-6 py-4">
+        <div class="text-center">
+          <div class="text-3xl font-bold text-gray-900">${{ profile.account_balance }}</div>
+          <div class="text-sm text-gray-500 mt-1">Available Balance</div>
+          
+          <div class="mt-4 pt-4 border-t border-gray-200">
+            <div class="text-sm text-gray-600">
+              <div class="flex justify-between">
+                <span>Registered Plates:</span>
+                <span class="font-medium">{{ user_plates.count }}</span>
+              </div>
+              <div class="flex justify-between mt-1">
+                <span>Active Plates:</span>
+                <span class="font-medium">{{ user_plates|length }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Registered Vehicles -->
+  {% if user_plates %}
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-medium text-gray-900">Registered Vehicles ({{ user_plates.count }})</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">License Plate</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Registered</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for plate in user_plates %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap">
+              <div class="text-sm font-medium text-gray-900">{{ plate.license_plate }}</div>
+              {% if plate.plate_image %}
+              <div class="text-xs text-gray-500">Has image</div>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              {{ plate.owner_name|default:"-" }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              {{ plate.phone_number }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {{ plate.is_active|yesno:'bg-green-100 text-green-800,bg-gray-100 text-gray-800' }}">
+                {{ plate.is_active|yesno:'Active,Inactive' }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+              {{ plate.created_at|date:"M d, Y" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Transaction History -->
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-medium text-gray-900">Recent Transactions ({{ user_transactions.count }})</h2>
+    </div>
+    {% if user_transactions %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plate</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Method</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for transaction in user_transactions %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              {{ transaction.timestamp|date:"M d, Y H:i" }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+              {{ transaction.license_plate }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              ${{ transaction.toll_amount }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full 
+                {% if transaction.status == 'COMPLETED' %}bg-green-100 text-green-800
+                {% elif transaction.status == 'PENDING' %}bg-yellow-100 text-yellow-800
+                {% elif transaction.status == 'FAILED' %}bg-red-100 text-red-800
+                {% else %}bg-gray-100 text-gray-800{% endif %}">
+                {{ transaction.status }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+              {{ transaction.payment_method|default:"-" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="px-6 py-8 text-center text-sm text-gray-500">
+      No transactions found
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Account Transactions -->
+  {% if account_transactions %}
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-medium text-gray-900">Account Activity ({{ account_transactions.count }})</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for transaction in account_transactions %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              {{ transaction.timestamp|date:"M d, Y H:i" }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full 
+                {% if transaction.transaction_type == 'CREDIT' %}bg-green-100 text-green-800
+                {% elif transaction.transaction_type == 'DEBIT' %}bg-red-100 text-red-800
+                {% else %}bg-gray-100 text-gray-800{% endif %}">
+                {{ transaction.get_transaction_type_display }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              ${{ transaction.amount }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+              {{ transaction.description }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

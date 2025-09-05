@@ -17,7 +17,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "channels",
     "dashboard.apps.DashboardConfig",
+    "boom_gate.apps.BoomGateConfig",
 ]
 
 MIDDLEWARE = [
@@ -49,6 +51,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "wsgi.application"
+ASGI_APPLICATION = "asgi.application"
+
+# Channels configuration
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 # Database - Default to SQLite for MVP simplicity
 if os.getenv("USE_POSTGRES") == "True":

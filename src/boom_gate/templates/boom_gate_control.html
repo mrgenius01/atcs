@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boom Gate Control</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .gate-visual {
+            width: 100%;
+            height: 200px;
+            background: #333;
+            border: 3px solid #666;
+            border-radius: 10px;
+            position: relative;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        
+        .gate-arm {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            width: 60%;
+            height: 8px;
+            background: linear-gradient(45deg, #ff4444, #cc0000);
+            border-radius: 4px;
+            transform-origin: left center;
+            transition: transform 0.5s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .gate-arm.open {
+            transform: rotate(-90deg);
+        }
+        
+        .gate-post {
+            position: absolute;
+            bottom: 0;
+            left: 10px;
+            width: 15px;
+            height: 60px;
+            background: #666;
+            border-radius: 7px 7px 0 0;
+        }
+        
+        .status-panel {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+        
+        .status-value {
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 15px;
+        }
+        
+        .status-closed { background: #dc3545; }
+        .status-open { background: #28a745; }
+        .status-opening { background: #ffc107; color: #000; }
+        .status-closing { background: #fd7e14; }
+        .status-error { background: #6f42c1; }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-warning {
+            background: #ffc107;
+            color: #000;
+        }
+        
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .log-panel {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .log-timestamp {
+            color: #aaa;
+            font-size: 12px;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .connected {
+            background: #28a745;
+            color: white;
+        }
+        
+        .disconnected {
+            background: #dc3545;
+            color: white;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .gate-arm.opening, .gate-arm.closing {
+            animation: pulse 0.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status disconnected" id="connectionStatus">
+        🔴 Disconnected
+    </div>
+
+    <div class="container">
+        <h1>🚧 Boom Gate Control System</h1>
+        
+        <div class="gate-visual">
+            <div class="gate-post"></div>
+            <div class="gate-arm" id="gateArm"></div>
+        </div>
+        
+        <div class="status-panel">
+            <h3>Gate Status</h3>
+            <div class="status-item">
+                <span>State:</span>
+                <span class="status-value status-closed" id="gateState">CLOSED</span>
+            </div>
+            <div class="status-item">
+                <span>Last Action:</span>
+                <span class="status-value" id="lastAction">Never</span>
+            </div>
+            <div class="status-item">
+                <span>Operational:</span>
+                <span class="status-value" id="operational">Yes</span>
+            </div>
+            <div class="status-item">
+                <span>Sound:</span>
+                <span class="status-value" id="soundStatus">Enabled</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn btn-success" id="openBtn">🔓 Open Gate</button>
+            <button class="btn btn-danger" id="closeBtn">🔒 Close Gate</button>
+            <button class="btn btn-info" id="autoCycleBtn">🔄 Auto Cycle</button>
+            <button class="btn btn-warning" id="emergencyBtn">⚠️ Emergency Stop</button>
+            <button class="btn btn-secondary" id="soundToggleBtn">🔊 Toggle Sound</button>
+            <button class="btn btn-info" id="refreshBtn">🔄 Refresh Status</button>
+        </div>
+        
+        <div class="log-panel">
+            <h4>Activity Log</h4>
+            <div id="activityLog">
+                <div class="log-entry">
+                    <div class="log-timestamp">System Ready</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let reconnectInterval = null;
+
+        // DOM elements
+        const connectionStatus = document.getElementById('connectionStatus');
+        const gateArm = document.getElementById('gateArm');
+        const gateState = document.getElementById('gateState');
+        const lastAction = document.getElementById('lastAction');
+        const operational = document.getElementById('operational');
+        const soundStatus = document.getElementById('soundStatus');
+        const activityLog = document.getElementById('activityLog');
+
+        // Buttons
+        const openBtn = document.getElementById('openBtn');
+        const closeBtn = document.getElementById('closeBtn');
+        const autoCycleBtn = document.getElementById('autoCycleBtn');
+        const emergencyBtn = document.getElementById('emergencyBtn');
+        const soundToggleBtn = document.getElementById('soundToggleBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/boom-gate/`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function() {
+                updateConnectionStatus(true);
+                log('WebSocket connected');
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
+                }
+            };
+            
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            socket.onclose = function() {
+                updateConnectionStatus(false);
+                log('WebSocket disconnected');
+                
+                // Auto-reconnect
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(connectWebSocket, 3000);
+                }
+            };
+            
+            socket.onerror = function(error) {
+                log('WebSocket error: ' + error);
+            };
+        }
+
+        function updateConnectionStatus(connected) {
+            if (connected) {
+                connectionStatus.textContent = '🟢 Connected';
+                connectionStatus.className = 'connection-status connected';
+            } else {
+                connectionStatus.textContent = '🔴 Disconnected';
+                connectionStatus.className = 'connection-status disconnected';
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            switch (data.type) {
+                case 'gate_status':
+                    updateGateStatus(data.data);
+                    break;
+                case 'response':
+                    log(data.message);
+                    break;
+                case 'error':
+                    log('ERROR: ' + data.message);
+                    break;
+                default:
+                    console.log('Unknown message type:', data);
+            }
+        }
+
+        function updateGateStatus(status) {
+            // Update gate state
+            gateState.textContent = status.state.toUpperCase();
+            gateState.className = `status-value status-${status.state}`;
+            
+            // Update gate visual
+            gateArm.className = `gate-arm ${status.state}`;
+            
+            // Update last action
+            const lastActionDate = new Date(status.last_action);
+            lastAction.textContent = lastActionDate.toLocaleTimeString();
+            
+            // Update operational status
+            operational.textContent = status.operational ? 'Yes' : 'No';
+            operational.style.color = status.operational ? '#28a745' : '#dc3545';
+            
+            // Update sound status
+            soundStatus.textContent = status.sound_enabled ? 'Enabled' : 'Disabled';
+            soundStatus.style.color = status.sound_enabled ? '#28a745' : '#dc3545';
+        }
+
+        function sendCommand(command, data = {}) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    command: command,
+                    ...data
+                }));
+            } else {
+                log('Cannot send command: WebSocket not connected');
+            }
+        }
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `
+                <div class="log-timestamp">${timestamp}</div>
+                <div>${message}</div>
+            `;
+            
+            activityLog.insertBefore(logEntry, activityLog.firstChild);
+            
+            // Keep only last 50 entries
+            while (activityLog.children.length > 50) {
+                activityLog.removeChild(activityLog.lastChild);
+            }
+        }
+
+        // Button event listeners
+        openBtn.addEventListener('click', () => {
+            sendCommand('open_gate');
+            log('Opening gate...');
+        });
+
+        closeBtn.addEventListener('click', () => {
+            sendCommand('close_gate');
+            log('Closing gate...');
+        });
+
+        autoCycleBtn.addEventListener('click', () => {
+            const duration = prompt('Enter open duration in seconds:', '5');
+            if (duration) {
+                sendCommand('auto_cycle', { open_duration: parseInt(duration) });
+                log(`Starting auto cycle (${duration}s)...`);
+            }
+        });
+
+        emergencyBtn.addEventListener('click', () => {
+            if (confirm('Activate emergency stop?')) {
+                sendCommand('emergency_stop');
+                log('EMERGENCY STOP ACTIVATED');
+            }
+        });
+
+        soundToggleBtn.addEventListener('click', () => {
+            sendCommand('toggle_sound');
+            log('Toggling sound...');
+        });
+
+        refreshBtn.addEventListener('click', () => {
+            sendCommand('get_status');
+            log('Refreshing status...');
+        });
+
+        // Initialize
+        connectWebSocket();
+        
+        // Auto-refresh status every 30 seconds
+        setInterval(() => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                sendCommand('get_status');
+            }
+        }, 30000);
+    </script>
+</body>
+</html>

@@ -638,6 +638,37 @@ def process_vehicle_transaction(request):
             ip_address=request.META.get('REMOTE_ADDR')
         )
         
+        # 8. Trigger boom gate if payment successful
+        if payment_result['success']:
+            try:
+                from boom_gate.sync_controller import trigger_gate_sync
+                
+                # Trigger boom gate opening in background thread
+                success = trigger_gate_sync(
+                    transaction_id=str(transaction.transaction_id),
+                    vehicle_plate=plate_number,
+                    open_duration=5
+                )
+                
+                if success:
+                    print(f"✓ Boom gate trigger initiated for: {plate_number}")
+                else:
+                    print(f"⚠️ Boom gate trigger failed to start")
+                
+            except Exception as gate_error:
+                print(f"WARNING: Boom gate trigger failed: {str(gate_error)}")
+                # Don't fail the transaction if boom gate fails
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='GATE_ERROR',
+                    details={
+                        'transaction_id': str(transaction.transaction_id),
+                        'error': str(gate_error),
+                        'plate': plate_number
+                    },
+                    ip_address=request.META.get('REMOTE_ADDR')
+                )
+        
         print("=== TRANSACTION PROCESSING COMPLETED ===")
         
         return JsonResponse({
@@ -655,7 +686,8 @@ def process_vehicle_transaction(request):
             'funding_amount': payment_result.get('funding_amount', 0),
             'phone_number': payment_result.get('phone_number', ''),
             'payment_provider': payment_result.get('payment_provider', ''),
-            'processing_time': payment_result.get('processing_time', 0)
+            'processing_time': payment_result.get('processing_time', 0),
+            'boom_gate_triggered': payment_result['success']  # Indicate if boom gate was triggered
         })
         
     except json.JSONDecodeError:

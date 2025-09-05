@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from dashboard.views import (
@@ -51,6 +51,9 @@ urlpatterns = [
     # User Management URLs (Admin only)
     path("users/", manage_users, name="manage_users"),
     path("users/<int:user_id>/", user_detail, name="user_detail"),
+    
+    # Boom Gate URLs
+    path("boom-gate/", include('boom_gate.urls')),
 ]
 
 if settings.DEBUG:

@@ -3,6 +3,9 @@ from decimal import Decimal
 from django.db import transaction
 from .ecocash_api import simulate_charge
 from blockchain.ledger import append_audit
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def process_payment(license_plate: str, amount: float, transaction_id: str | None = None, phone_number: str | None = None) -> dict:
@@ -52,8 +55,9 @@ def process_payment(license_plate: str, amount: float, transaction_id: str | Non
                     transaction_type='DEBIT',
                     amount=toll_amount,
                     description=f'Toll payment for plate {license_plate}',
-                    reference=transaction_id or f'TOLL_{timezone.now().strftime("%Y%m%d%H%M%S")}',
-                    timestamp=timezone.now()
+                    balance_before=current_balance,
+                    balance_after=user_profile.account_balance,
+                    reference_number=transaction_id or f'TOLL_{timezone.now().strftime("%Y%m%d%H%M%S")}'
                 )
             
             # Create transaction record
@@ -99,8 +103,9 @@ def process_payment(license_plate: str, amount: float, transaction_id: str | Non
                     transaction_type='DEBIT',
                     amount=toll_amount,
                     description=f'Toll payment for plate {license_plate} (Insufficient balance)',
-                    reference=transaction_id or f'TOLL_{timezone.now().strftime("%Y%m%d%H%M%S")}',
-                    timestamp=timezone.now()
+                    balance_before=current_balance,
+                    balance_after=new_balance,
+                    reference_number=transaction_id or f'TOLL_{timezone.now().strftime("%Y%m%d%H%M%S")}'
                 )
             
             # Determine mobile money provider based on phone number
@@ -108,8 +113,28 @@ def process_payment(license_plate: str, amount: float, transaction_id: str | Non
             payment_provider = 'ECOCASH'  # Default
             if phone and phone.startswith('071'):  # NetOne numbers
                 payment_provider = 'ONEMONEY'
-            elif phone and phone.startswith('077'):  # Econet numbers  
+            elif phone and (phone.startswith('077') or phone.startswith('078')):  # Econet numbers  
                 payment_provider = 'ECOCASH'
+            
+            # Initiate automatic Paynow funding if phone number is available
+            paynow_initiated = False
+            paynow_reference = None
+            funding_amount = abs(float(new_balance)) + 10.00 if new_balance < 0 else 10.00  # Add buffer
+            
+            if phone:
+                from .ecocash_api import initiate_paynow_payment
+                paynow_result = initiate_paynow_payment(
+                    phone_number=phone,
+                    amount=funding_amount,
+                    description=f'ATCS Account Funding - Plate {license_plate}'
+                )
+                
+                if paynow_result.get('success'):
+                    paynow_initiated = True
+                    paynow_reference = paynow_result.get('payment_reference')
+                    logger.info(f"Paynow funding initiated for {phone}: ${funding_amount}")
+                else:
+                    logger.warning(f"Paynow funding failed for {phone}: {paynow_result.get('error')}")
             
             # Create transaction record
             transaction_data = {
@@ -123,17 +148,25 @@ def process_payment(license_plate: str, amount: float, transaction_id: str | Non
                 'phone_number': phone,
                 'balance_after': float(new_balance),
                 'requires_funding': True,
-                'funding_amount': abs(float(new_balance)) if new_balance < 0 else 10.00,  # Minimum $10 top-up
-                'payment_provider': payment_provider
+                'funding_amount': funding_amount,
+                'payment_provider': payment_provider,
+                'paynow_initiated': paynow_initiated,
+                'paynow_reference': paynow_reference
             }
             
             # Log to blockchain
             audit_hash = append_audit(transaction_data)
             transaction_data['audit_hash'] = audit_hash
             
+            message = f"Payment processed. Account balance is now ${new_balance:.2f}."
+            if paynow_initiated:
+                message += f" Funding request sent to {phone} via {payment_provider}."
+            else:
+                message += " Please fund your account manually."
+            
             return {
                 'success': True,
-                'message': f"Payment processed. Account balance is now ${new_balance:.2f}. Please fund your account.",
+                'message': message,
                 'payment_method': 'ACCOUNT_BALANCE',
                 'reference': audit_hash[:20],
                 'balance': float(new_balance),
@@ -142,9 +175,11 @@ def process_payment(license_plate: str, amount: float, transaction_id: str | Non
                 'transaction_data': transaction_data,
                 'audit_hash': audit_hash,
                 'requires_funding': True,
-                'funding_amount': abs(float(new_balance)) if new_balance < 0 else 10.00,
+                'funding_amount': funding_amount,
                 'phone_number': phone,
                 'payment_provider': payment_provider,
+                'paynow_initiated': paynow_initiated,
+                'paynow_reference': paynow_reference
             }
             
     except Exception as e:

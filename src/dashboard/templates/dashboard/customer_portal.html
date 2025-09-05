@@ -382,38 +382,121 @@ document.getElementById('addFundsForm').addEventListener('submit', async functio
       updatePaymentStatus('Payment Error', errorContent, 'Try Again', 'bg-red-600 hover:bg-red-700');
     }
   } catch (error) {
-    alert('Error processing payment: ' + error.message);
+    const errorContent = `
+      <div class="text-center">
+        <div class="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+          <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+        </div>
+        <p class="text-lg font-semibold text-gray-900 mb-2">Connection Error</p>
+        <p class="text-sm text-red-600">Error processing payment: ${error.message}</p>
+      </div>
+    `;
+    updatePaymentStatus('Network Error', errorContent, 'Retry', 'bg-red-600 hover:bg-red-700');
   }
 });
 
 // Function to poll payment status
-async function pollPaymentStatus(pollUrl, maxAttempts = 30, interval = 5000) {
+async function pollPaymentStatus(pollUrl, paymentRef, maxAttempts = 30, interval = 5000) {
   let attempts = 0;
   
   const checkStatus = async () => {
     try {
-      const response = await fetch(pollUrl, {
+      const response = await fetch('/api/check-payment-status/', {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-        }
+        },
+        body: JSON.stringify({
+          poll_url: pollUrl
+        })
       });
       
       const data = await response.json();
       
       if (data.status === 'Paid') {
-        alert('Payment confirmed! Your account has been funded.');
-        location.reload(); // Refresh to show new balance
+        // Payment successful
+        const successContent = `
+          <div class="text-center">
+            <div class="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+              <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+            </div>
+            <p class="text-lg font-semibold text-gray-900 mb-2">Payment Confirmed!</p>
+            <p class="text-sm text-gray-600 mb-2">Your account has been successfully funded.</p>
+            <p class="text-xs text-gray-500">Amount: $${data.amount || 'N/A'}</p>
+            <p class="text-xs text-gray-500">Reference: ${paymentRef}</p>
+          </div>
+        `;
+        updatePaymentStatus('Payment Successful', successContent, 'Continue', 'bg-green-600 hover:bg-green-700');
+        
+        // Auto-close modal and refresh after 2 seconds
+        setTimeout(() => {
+          closePaymentStatusModal();
+          location.reload();
+        }, 2000);
         return;
-      } else if (data.status === 'Cancelled' || data.status === 'Disputed') {
-        alert('Payment failed or was cancelled. Please try again.');
+        
+      } else if (data.status === 'Cancelled' || data.status === 'Disputed' || data.status === 'Error' || !data.success) {
+        // Payment failed
+        const failedContent = `
+          <div class="text-center">
+            <div class="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+              <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </div>
+            <p class="text-lg font-semibold text-gray-900 mb-2">Payment ${data.status || 'Failed'}</p>
+            <p class="text-sm text-red-600 mb-2">The payment was ${(data.status || 'failed').toLowerCase()} or failed.</p>
+            <p class="text-xs text-gray-500">Reference: ${paymentRef}</p>
+          </div>
+        `;
+        updatePaymentStatus('Payment Failed', failedContent, 'Try Again', 'bg-red-600 hover:bg-red-700');
         return;
-      } else if (data.status === 'Created' || data.status === 'Sent') {
+        
+      } else {
+        // Payment still pending - handle all other cases as pending
         // Payment still pending, continue polling
         attempts++;
         if (attempts < maxAttempts) {
+          // Update the modal with current attempt count
+          const waitingContent = `
+            <div class="text-center">
+              <div class="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
+                <svg class="animate-spin w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+              <p class="text-lg font-semibold text-gray-900 mb-2">Checking Payment Status...</p>
+              <p class="text-sm text-gray-600 mb-2">Please wait while we confirm your payment.</p>
+              <div class="w-full bg-gray-200 rounded-full h-2 mb-4">
+                <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: ${(attempts / maxAttempts) * 100}%"></div>
+              </div>
+              <p class="text-xs text-gray-500">Attempt ${attempts} of ${maxAttempts}</p>
+              <p class="text-xs text-gray-500">Reference: ${paymentRef}</p>
+            </div>
+          `;
+          updatePaymentStatus('Checking Payment', waitingContent, 'Cancel', 'bg-gray-600 hover:bg-gray-700');
           setTimeout(checkStatus, interval);
         } else {
-          alert('Payment status check timed out. Please check your account balance manually.');
+          // Timeout
+          const timeoutContent = `
+            <div class="text-center">
+              <div class="w-16 h-16 mx-auto mb-4 bg-yellow-100 rounded-full flex items-center justify-center">
+                <svg class="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <p class="text-lg font-semibold text-gray-900 mb-2">Status Check Timeout</p>
+              <p class="text-sm text-yellow-600 mb-2">Unable to confirm payment status. Please check your account balance manually.</p>
+              <p class="text-xs text-gray-500">Reference: ${paymentRef}</p>
+            </div>
+          `;
+          updatePaymentStatus('Payment Status Unknown', timeoutContent, 'Check Balance', 'bg-yellow-600 hover:bg-yellow-700');
         }
       }
     } catch (error) {
@@ -421,6 +504,21 @@ async function pollPaymentStatus(pollUrl, maxAttempts = 30, interval = 5000) {
       attempts++;
       if (attempts < maxAttempts) {
         setTimeout(checkStatus, interval);
+      } else {
+        // Network error after max attempts
+        const networkErrorContent = `
+          <div class="text-center">
+            <div class="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+              <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
+            <p class="text-lg font-semibold text-gray-900 mb-2">Connection Error</p>
+            <p class="text-sm text-red-600 mb-2">Unable to check payment status due to network issues.</p>
+            <p class="text-xs text-gray-500">Reference: ${paymentRef}</p>
+          </div>
+        `;
+        updatePaymentStatus('Network Error', networkErrorContent, 'OK', 'bg-red-600 hover:bg-red-700');
       }
     }
   };
@@ -433,6 +531,12 @@ async function pollPaymentStatus(pollUrl, maxAttempts = 30, interval = 5000) {
 document.getElementById('addFundsModal').addEventListener('click', function(e) {
   if (e.target === this) {
     closeAddFundsModal();
+  }
+});
+
+document.getElementById('paymentStatusModal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closePaymentStatusModal();
   }
 });
 </script>

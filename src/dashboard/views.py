@@ -582,7 +582,7 @@ def process_vehicle_transaction(request):
 
         # 3. Process payment using registered phone number
         payment_result = process_payment(
-            plate_number=plate_number,
+            license_plate=plate_number,
             amount=toll_amount,
             transaction_id=str(transaction.transaction_id),
             phone_number=reg.phone_number
@@ -662,7 +662,13 @@ def process_vehicle_transaction(request):
         print("ERROR: Invalid JSON in request")
         return JsonResponse({
             'success': False,
-            'error': 'Invalid JSON data'
+            'error': 'Invalid JSON data',
+            'plate_number': 'Unknown',
+            'amount': 0,
+            'status': 'FAILED',
+            'transaction_id': 'N/A',
+            'blockchain_hash': None,
+            'message': 'Invalid request format'
         }, status=400)
     except Exception as e:
         print(f"ERROR: Transaction processing failed: {str(e)}")
@@ -674,7 +680,13 @@ def process_vehicle_transaction(request):
         )
         return JsonResponse({
             'success': False,
-            'error': f'Transaction processing failed: {str(e)}'
+            'error': f'Transaction processing failed: {str(e)}',
+            'plate_number': data.get('plate_number', 'Unknown'),
+            'amount': 0,
+            'status': 'FAILED',
+            'transaction_id': 'N/A',
+            'blockchain_hash': None,
+            'message': f'Error: {str(e)}'
         }, status=500)
 
 
@@ -878,7 +890,7 @@ def manual_review_update(request):
 
         # Process payment
         payment_result = process_payment(
-            plate_number=tx.license_plate,
+            license_plate=tx.license_plate,
             amount=float(tx.toll_amount),
             transaction_id=tx.transaction_id,
             phone_number=reg.phone_number
@@ -1391,7 +1403,7 @@ def check_payment_status(request):
         payment_status = check_paynow_payment_status(poll_url)
         
         # If payment was successful, update user's account balance
-        if payment_status.get('success') and payment_status.get('status') == 'COMPLETED':
+        if payment_status.get('success') and payment_status.get('status') == 'Paid':
             # Find the pending transaction and update user balance
             amount = payment_status.get('amount', 0)
             paynow_ref = payment_status.get('paynow_reference', '')
@@ -1408,7 +1420,9 @@ def check_payment_status(request):
                     transaction_type='DEPOSIT',
                     amount=amount,
                     description=f'Paynow payment - Ref: {paynow_ref}',
-                    balance_after=profile.account_balance
+                    balance_before=profile.account_balance - amount,
+                    balance_after=profile.account_balance,
+                    reference_number=paynow_ref
                 )
                 
                 payment_status['new_balance'] = float(profile.account_balance)
@@ -1485,10 +1499,9 @@ def paynow_callback(request):
                             transaction_type='CREDIT',
                             amount=Decimal(str(amount)),
                             description=f'Paynow payment - {paynow_reference}',
-                            reference=reference,
+                            reference_number=reference,
                             balance_before=balance_before,
-                            balance_after=profile.account_balance,
-                            timestamp=timezone.now()
+                            balance_after=profile.account_balance
                         )
                         
                         # Log successful payment

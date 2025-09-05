@@ -1,0 +1,327 @@
+{% extends "dashboard/layout.html" %}
+{% load static %}
+
+{% block title %}Account Statements{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+  <!-- Header -->
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Account Statements</h1>
+      <p class="mt-2 text-gray-600">View your account activity and fund transactions</p>
+    </div>
+    <a href="{% url 'customer_portal' %}" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200">
+      Back to Portal
+    </a>
+  </div>
+
+  <!-- Account Summary -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-lg shadow p-6">
+      <div class="flex items-center">
+        <div class="p-3 rounded-full bg-blue-100">
+          <svg class="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+          </svg>
+        </div>
+        <div class="ml-4">
+          <p class="text-sm font-medium text-gray-500">Current Balance</p>
+          <p class="text-2xl font-semibold text-gray-900">${{ profile.account_balance }}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-6">
+      <div class="flex items-center">
+        <div class="p-3 rounded-full bg-green-100">
+          <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 11l5-5m0 0l5 5m-5-5v12"></path>
+          </svg>
+        </div>
+        <div class="ml-4">
+          <p class="text-sm font-medium text-gray-500">30-Day Credits</p>
+          <p class="text-2xl font-semibold text-green-600">${{ monthly_summary.total_credits|default:"0.00" }}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-6">
+      <div class="flex items-center">
+        <div class="p-3 rounded-full bg-red-100">
+          <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 13l-5 5m0 0l-5-5m5 5V6"></path>
+          </svg>
+        </div>
+        <div class="ml-4">
+          <p class="text-sm font-medium text-gray-500">30-Day Debits</p>
+          <p class="text-2xl font-semibold text-red-600">${{ monthly_summary.total_debits|default:"0.00" }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account Transactions -->
+  {% if page_obj %}
+  <div class="bg-white shadow overflow-hidden sm:rounded-md">
+    <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+      <div class="flex justify-between items-center">
+        <div>
+          <h3 class="text-lg leading-6 font-medium text-gray-900">Account Activity</h3>
+          <p class="mt-1 max-w-2xl text-sm text-gray-500">
+            All account funding and payment transactions
+          </p>
+        </div>
+        <button onclick="openAddFundsModal()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200">
+          Add Funds
+        </button>
+      </div>
+    </div>
+    
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Date & Time
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Reference
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Description
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Type
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Amount
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Balance After
+            </th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for transaction in page_obj %}
+          <tr>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              {{ transaction.timestamp|date:"M d, Y" }}<br>
+              <span class="text-gray-500">{{ transaction.timestamp|time:"g:i A" }}</span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <div class="text-sm text-gray-900 font-mono">{{ transaction.reference_number|truncatechars:12 }}</div>
+              {% if transaction.related_toll_transaction %}
+                <div class="text-xs text-gray-500">
+                  Toll: {{ transaction.related_toll_transaction.transaction_id|truncatechars:8 }}
+                </div>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-900">
+              {{ transaction.description }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                {% if transaction.transaction_type == 'CREDIT' %}bg-green-100 text-green-800
+                {% elif transaction.transaction_type == 'TOLL_PAYMENT' %}bg-blue-100 text-blue-800
+                {% elif transaction.transaction_type == 'REFUND' %}bg-yellow-100 text-yellow-800
+                {% else %}bg-red-100 text-red-800{% endif %}">
+                {{ transaction.get_transaction_type_display }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+              {% if transaction.transaction_type == 'CREDIT' or transaction.transaction_type == 'REFUND' %}
+                <span class="text-green-600">+${{ transaction.amount }}</span>
+              {% else %}
+                <span class="text-red-600">-${{ transaction.amount }}</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+              ${{ transaction.balance_after }}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+              No account transactions found
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- Pagination -->
+    {% if page_obj.has_other_pages %}
+    <div class="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+      <div class="flex-1 flex justify-between sm:hidden">
+        {% if page_obj.has_previous %}
+          <a href="?page={{ page_obj.previous_page_number }}" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+            Previous
+          </a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a href="?page={{ page_obj.next_page_number }}" class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+            Next
+          </a>
+        {% endif %}
+      </div>
+      <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+        <div>
+          <p class="text-sm text-gray-700">
+            Showing
+            <span class="font-medium">{{ page_obj.start_index }}</span>
+            to
+            <span class="font-medium">{{ page_obj.end_index }}</span>
+            of
+            <span class="font-medium">{{ page_obj.paginator.count }}</span>
+            results
+          </p>
+        </div>
+        <div>
+          <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+            {% if page_obj.has_previous %}
+              <a href="?page={{ page_obj.previous_page_number }}" class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                <span class="sr-only">Previous</span>
+                <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
+              </a>
+            {% endif %}
+            
+            {% for num in page_obj.paginator.page_range %}
+              {% if page_obj.number == num %}
+                <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-blue-50 text-sm font-medium text-blue-600">
+                  {{ num }}
+                </span>
+              {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                <a href="?page={{ num }}" class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
+                  {{ num }}
+                </a>
+              {% endif %}
+            {% endfor %}
+            
+            {% if page_obj.has_next %}
+              <a href="?page={{ page_obj.next_page_number }}" class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                <span class="sr-only">Next</span>
+                <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                </svg>
+              </a>
+            {% endif %}
+          </nav>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="text-center py-12">
+    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+    </svg>
+    <h3 class="mt-2 text-sm font-medium text-gray-900">No account activity</h3>
+    <p class="mt-1 text-sm text-gray-500">Start by adding funds to your account.</p>
+    <div class="mt-6">
+      <button onclick="openAddFundsModal()" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700">
+        Add Funds
+      </button>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Add Funds Modal -->
+<div id="addFundsModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+  <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+    <div class="mt-3">
+      <h3 class="text-lg font-medium text-gray-900 mb-4">Add Funds to Account</h3>
+      <form id="addFundsForm">
+        {% csrf_token %}
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Amount (USD)</label>
+          <input type="number" id="amount" name="amount" min="1" max="1000" step="0.01" 
+                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                 placeholder="Enter amount" required>
+          <p class="text-xs text-gray-500 mt-1">Minimum: $1.00, Maximum: $1000.00</p>
+        </div>
+        
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+          <select id="paymentMethod" name="payment_method" 
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+            <option value="ECOCASH">EcoCash</option>
+            <option value="ZIPIT">ZiPiT</option>
+            <option value="VISA">Visa Card</option>
+            <option value="MASTERCARD">Mastercard</option>
+          </select>
+        </div>
+        
+        <div class="flex justify-end space-x-3">
+          <button type="button" onclick="closeAddFundsModal()" 
+                  class="px-4 py-2 text-gray-500 hover:text-gray-700">Cancel</button>
+          <button type="submit" 
+                  class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">
+            Add Funds
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function openAddFundsModal() {
+  document.getElementById('addFundsModal').classList.remove('hidden');
+}
+
+function closeAddFundsModal() {
+  document.getElementById('addFundsModal').classList.add('hidden');
+  document.getElementById('addFundsForm').reset();
+}
+
+document.getElementById('addFundsForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  const amount = document.getElementById('amount').value;
+  const paymentMethod = document.getElementById('paymentMethod').value;
+  
+  if (!amount || amount <= 0) {
+    alert('Please enter a valid amount');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/add-funds/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+      },
+      body: JSON.stringify({
+        amount: parseFloat(amount),
+        payment_method: paymentMethod
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      alert(data.message);
+      location.reload(); // Refresh to show new balance
+    } else {
+      alert(data.error || 'Failed to add funds');
+    }
+  } catch (error) {
+    alert('Error processing payment: ' + error.message);
+  }
+});
+
+// Close modal when clicking outside
+document.getElementById('addFundsModal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closeAddFundsModal();
+  }
+});
+</script>
+{% endblock %}

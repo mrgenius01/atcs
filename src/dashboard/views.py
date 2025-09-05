@@ -1,16 +1,46 @@
 from django.http import JsonResponse
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
+from django.core.paginator import Paginator
+from django.db.models import Q, Sum
+from django.utils import timezone
+from decimal import Decimal
 import json
-from .models import Transaction, ANPRResult, AuditLog, PlateRegistration, normalize_plate, FeedbackThread, FeedbackReply
+from .models import (
+    Transaction, ANPRResult, AuditLog, PlateRegistration, normalize_plate, 
+    FeedbackThread, FeedbackReply, UserProfile, AccountTransaction, UserRole
+)
 from django.db import models
 from security.auth import verify_totp, get_qr_code, get_or_create_profile
 from payments.transactions import process_payment
 from anpr.detector import detect_and_recognize_plate
 from anpr.gemini_recognizer import recognize_plate_with_gemini
+
+
+# Role-based access decorators
+def admin_required(view_func):
+    """Decorator to require admin role"""
+    def check_admin(user):
+        if not user.is_authenticated:
+            return False
+        profile = get_or_create_profile(user)
+        return profile.role == UserRole.ADMIN
+    
+    return user_passes_test(check_admin)(view_func)
+
+
+def operator_or_admin_required(view_func):
+    """Decorator to require operator or admin role"""
+    def check_operator_admin(user):
+        if not user.is_authenticated:
+            return False
+        profile = get_or_create_profile(user)
+        return profile.role in [UserRole.ADMIN, UserRole.OPERATOR]
+    
+    return user_passes_test(check_operator_admin)(view_func)
 
 
 @csrf_exempt
@@ -27,14 +57,6 @@ def gemini_plate_api(request):
         return JsonResponse(result)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
-
-
-@login_required
-def home(request):
-    recent_transactions = Transaction.objects.all()[:10]
-    return render(request, "dashboard/home.html", {
-        'recent_transactions': recent_transactions
-    })
 
 
 @require_GET
@@ -409,7 +431,7 @@ def list_registrations(request):
     ]})
 
 
-@login_required
+@operator_or_admin_required
 def manage_registrations(request):
     """Render/manage plate registrations with a form and a table."""
     flash = None
@@ -778,4 +800,244 @@ def manual_review_update(request):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
+# Customer Portal Views
+@login_required
+def customer_portal(request):
+    """Customer portal dashboard showing account balance, recent transactions, and plates"""
+    profile = get_or_create_profile(request.user)
+    
+    # Get user's plate registrations
+    user_plates = PlateRegistration.objects.filter(user=request.user)
+    
+    # Get user's recent transactions
+    recent_transactions = Transaction.objects.filter(
+        Q(user=request.user) | Q(license_plate__in=[p.license_plate for p in user_plates])
+    ).order_by('-timestamp')[:10]
+    
+    # Get recent account transactions
+    account_transactions = AccountTransaction.objects.filter(user=request.user)[:5]
+    
+    context = {
+        'profile': profile,
+        'user_plates': user_plates,
+        'recent_transactions': recent_transactions,
+        'account_transactions': account_transactions,
+    }
+    return render(request, 'dashboard/customer_portal.html', context)
 
+
+@login_required
+def customer_transactions(request):
+    """Customer's transaction history"""
+    profile = get_or_create_profile(request.user)
+    user_plates = PlateRegistration.objects.filter(user=request.user)
+    
+    # Get all transactions for user's plates
+    transactions = Transaction.objects.filter(
+        Q(user=request.user) | Q(license_plate__in=[p.license_plate for p in user_plates])
+    ).order_by('-timestamp')
+    
+    # Pagination
+    paginator = Paginator(transactions, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'profile': profile,
+        'page_obj': page_obj,
+        'transactions': page_obj,
+    }
+    return render(request, 'dashboard/customer_transactions.html', context)
+
+
+@login_required
+@require_POST
+@csrf_exempt
+def add_funds(request):
+    """Add funds to customer account"""
+    try:
+        data = json.loads(request.body)
+        amount = float(data.get('amount', 0))
+        payment_method = data.get('payment_method', 'ECOCASH')
+        
+        if amount <= 0:
+            return JsonResponse({'success': False, 'error': 'Invalid amount'}, status=400)
+        
+        if amount > 1000:  # Limit to $1000 per transaction
+            return JsonResponse({'success': False, 'error': 'Amount exceeds limit of $1000'}, status=400)
+        
+        profile = get_or_create_profile(request.user)
+        
+        # Simulate payment processing (85% success rate)
+        from random import random
+        if random() < 0.85:
+            # Success - add funds
+            balance_before = profile.account_balance
+            profile.add_funds(amount)
+            
+            # Create account transaction record
+            AccountTransaction.objects.create(
+                user=request.user,
+                transaction_type='CREDIT',
+                amount=Decimal(str(amount)),
+                description=f'Funds added via {payment_method}',
+                balance_before=balance_before,
+                balance_after=profile.account_balance,
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Successfully added ${amount:.2f} to your account',
+                'new_balance': float(profile.account_balance),
+                'payment_method': payment_method
+            })
+        else:
+            # Simulate payment failure
+            return JsonResponse({
+                'success': False,
+                'error': 'Payment processing failed. Please try again or use a different payment method.'
+            }, status=400)
+            
+    except (ValueError, json.JSONDecodeError):
+        return JsonResponse({'success': False, 'error': 'Invalid request data'}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@login_required
+def account_statements(request):
+    """Customer account statements and transaction history"""
+    profile = get_or_create_profile(request.user)
+    
+    # Get account transactions
+    account_transactions = AccountTransaction.objects.filter(user=request.user).order_by('-timestamp')
+    
+    # Calculate monthly summary
+    from django.db.models import Sum
+    from datetime import datetime, timedelta
+    
+    thirty_days_ago = timezone.now() - timedelta(days=30)
+    monthly_summary = AccountTransaction.objects.filter(
+        user=request.user,
+        timestamp__gte=thirty_days_ago
+    ).aggregate(
+        total_credits=Sum('amount', filter=Q(transaction_type='CREDIT')),
+        total_debits=Sum('amount', filter=Q(transaction_type__in=['DEBIT', 'TOLL_PAYMENT']))
+    )
+    
+    # Pagination
+    paginator = Paginator(account_transactions, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'profile': profile,
+        'page_obj': page_obj,
+        'monthly_summary': monthly_summary,
+    }
+    return render(request, 'dashboard/account_statements.html', context)
+
+
+@login_required
+def manage_user_plates(request):
+    """Customer can manage their own plate registrations"""
+    profile = get_or_create_profile(request.user)
+    user_plates = PlateRegistration.objects.filter(user=request.user)
+    
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'add':
+            license_plate = request.POST.get('license_plate', '').strip().upper()
+            phone_number = request.POST.get('phone_number', '').strip()
+            owner_name = request.POST.get('owner_name', '').strip()
+            
+            if not license_plate or not phone_number:
+                context = {
+                    'profile': profile,
+                    'user_plates': user_plates,
+                    'error': 'License plate and phone number are required'
+                }
+                return render(request, 'dashboard/manage_user_plates.html', context)
+            
+            # Check if plate already exists
+            existing = PlateRegistration.objects.filter(
+                normalized_plate=normalize_plate(license_plate)
+            ).first()
+            
+            if existing:
+                context = {
+                    'profile': profile,
+                    'user_plates': user_plates,
+                    'error': 'This license plate is already registered'
+                }
+                return render(request, 'dashboard/manage_user_plates.html', context)
+            
+            # Create new plate registration
+            PlateRegistration.objects.create(
+                user=request.user,
+                license_plate=license_plate,
+                phone_number=phone_number,
+                owner_name=owner_name or request.user.get_full_name(),
+                plate_image=request.FILES.get('plate_image')
+            )
+            
+            return redirect('manage_user_plates')
+            
+        elif action == 'delete':
+            plate_id = request.POST.get('plate_id')
+            try:
+                plate = PlateRegistration.objects.get(id=plate_id, user=request.user)
+                plate.delete()
+                return redirect('manage_user_plates')
+            except PlateRegistration.DoesNotExist:
+                pass
+                
+        elif action == 'toggle':
+            plate_id = request.POST.get('plate_id')
+            try:
+                plate = PlateRegistration.objects.get(id=plate_id, user=request.user)
+                plate.is_active = not plate.is_active
+                plate.save()
+                return redirect('manage_user_plates')
+            except PlateRegistration.DoesNotExist:
+                pass
+    
+    context = {
+        'profile': profile,
+        'user_plates': user_plates,
+    }
+    return render(request, 'dashboard/manage_user_plates.html', context)
+
+
+# Enhanced home view with role-based content
+@login_required
+def home(request):
+    """Role-based home dashboard"""
+    profile = get_or_create_profile(request.user)
+    
+    if profile.role == UserRole.CUSTOMER:
+        # Redirect customers to their portal
+        return redirect('customer_portal')
+    
+    # Admin/Operator dashboard
+    recent_transactions = Transaction.objects.all()[:10]
+    
+    # Get some stats
+    today = timezone.now().date()
+    daily_stats = {
+        'total_transactions': Transaction.objects.filter(timestamp__date=today).count(),
+        'successful_transactions': Transaction.objects.filter(
+            timestamp__date=today, status='COMPLETED'
+        ).count(),
+        'total_amount': Transaction.objects.filter(
+            timestamp__date=today, status='COMPLETED'
+        ).aggregate(Sum('toll_amount'))['toll_amount__sum'] or 0,
+    }
+    
+    context = {
+        'profile': profile,
+        'recent_transactions': recent_transactions,
+        'daily_stats': daily_stats,
+    }
+    return render(request, "dashboard/home.html", context)

@@ -7,7 +7,10 @@ from dashboard.views import (
     totp_setup, process_vehicle,
     anpr_page, anpr_process_api, anpr_results_api,
     process_vehicle_transaction, transaction_status, recent_transactions,
-    register_plate, plate_info, list_registrations, manage_registrations, gemini_plate_api, manual_review_update
+    register_plate, plate_info, list_registrations, manage_registrations, 
+    gemini_plate_api, manual_review_update,
+    # Customer portal views
+    customer_portal, customer_transactions, add_funds, account_statements, manage_user_plates
 )
 
 urlpatterns = [
@@ -32,6 +35,13 @@ urlpatterns = [
     path("registrations/", manage_registrations, name="manage_registrations"),
     path("api/gemini-plate/", gemini_plate_api, name="gemini_plate_api"),
     path("api/transactions/manual-review/", manual_review_update, name="manual_review_update"),
+    
+    # Customer Portal URLs
+    path("portal/", customer_portal, name="customer_portal"),
+    path("portal/transactions/", customer_transactions, name="customer_transactions"),
+    path("portal/statements/", account_statements, name="account_statements"),
+    path("portal/plates/", manage_user_plates, name="manage_user_plates"),
+    path("api/add-funds/", add_funds, name="add_funds"),
 ]
 
 if settings.DEBUG:

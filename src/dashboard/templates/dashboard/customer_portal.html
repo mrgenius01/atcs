@@ -1,0 +1,305 @@
+{% extends "dashboard/layout.html" %}
+{% load static %}
+
+{% block title %}Customer Portal{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+  <!-- Header -->
+  <div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-900">Welcome, {{ user.get_full_name|default:user.username }}</h1>
+    <p class="mt-2 text-gray-600">Manage your toll account, transactions, and registered vehicles</p>
+  </div>
+
+  <!-- Account Balance Card -->
+  <div class="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg shadow-lg p-6 mb-8 text-white">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-xl font-semibold">Account Balance</h2>
+        <p class="text-3xl font-bold mt-2">${{ profile.account_balance }}</p>
+        <p class="text-blue-100 text-sm">Available for toll payments</p>
+      </div>
+      <div class="text-right">
+        <button id="addFundsBtn" class="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50 transition duration-200">
+          Add Funds
+        </button>
+        <div class="text-blue-100 text-sm mt-2">
+          Role: {{ profile.get_role_display }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Stats Grid -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-lg shadow p-6">
+      <div class="flex items-center">
+        <div class="p-3 rounded-full bg-green-100">
+          <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+        </div>
+        <div class="ml-4">
+          <p class="text-sm font-medium text-gray-500">Registered Vehicles</p>
+          <p class="text-2xl font-semibold text-gray-900">{{ user_plates.count }}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-6">
+      <div class="flex items-center">
+        <div class="p-3 rounded-full bg-blue-100">
+          <svg class="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4V2C7 1.44772 7.44772 1 8 1H16C16.5523 1 17 1.44772 17 2V4H20C20.5523 4 21 4.44772 21 5S20.5523 6 20 6H19V19C19 20.1046 18.1046 21 17 21H7C5.89543 21 5 20.1046 5 19V6H4C3.44772 6 3 5.55228 3 5S3.44772 4 4 4H7Z"></path>
+          </svg>
+        </div>
+        <div class="ml-4">
+          <p class="text-sm font-medium text-gray-500">Recent Transactions</p>
+          <p class="text-2xl font-semibold text-gray-900">{{ recent_transactions.count }}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow p-6">
+      <div class="flex items-center">
+        <div class="p-3 rounded-full bg-yellow-100">
+          <svg class="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+          </svg>
+        </div>
+        <div class="ml-4">
+          <p class="text-sm font-medium text-gray-500">Account Transactions</p>
+          <p class="text-2xl font-semibold text-gray-900">{{ account_transactions.count }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Actions -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <a href="{% url 'manage_user_plates' %}" class="bg-white p-4 rounded-lg shadow hover:shadow-md transition duration-200 text-center">
+      <div class="p-3 rounded-full bg-purple-100 w-12 h-12 mx-auto mb-3 flex items-center justify-center">
+        <svg class="h-6 w-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+        </svg>
+      </div>
+      <h3 class="font-medium text-gray-900">Manage Plates</h3>
+      <p class="text-sm text-gray-500">Register vehicles</p>
+    </a>
+
+    <a href="{% url 'customer_transactions' %}" class="bg-white p-4 rounded-lg shadow hover:shadow-md transition duration-200 text-center">
+      <div class="p-3 rounded-full bg-green-100 w-12 h-12 mx-auto mb-3 flex items-center justify-center">
+        <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+        </svg>
+      </div>
+      <h3 class="font-medium text-gray-900">View Transactions</h3>
+      <p class="text-sm text-gray-500">Toll history</p>
+    </a>
+
+    <a href="{% url 'account_statements' %}" class="bg-white p-4 rounded-lg shadow hover:shadow-md transition duration-200 text-center">
+      <div class="p-3 rounded-full bg-blue-100 w-12 h-12 mx-auto mb-3 flex items-center justify-center">
+        <svg class="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+      </div>
+      <h3 class="font-medium text-gray-900">Statements</h3>
+      <p class="text-sm text-gray-500">Account activity</p>
+    </a>
+
+    <button onclick="openAddFundsModal()" class="bg-white p-4 rounded-lg shadow hover:shadow-md transition duration-200 text-center">
+      <div class="p-3 rounded-full bg-yellow-100 w-12 h-12 mx-auto mb-3 flex items-center justify-center">
+        <svg class="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+        </svg>
+      </div>
+      <h3 class="font-medium text-gray-900">Add Funds</h3>
+      <p class="text-sm text-gray-500">Top up account</p>
+    </button>
+  </div>
+
+  <!-- Recent Transactions -->
+  {% if recent_transactions %}
+  <div class="bg-white shadow rounded-lg mb-8">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Recent Toll Transactions</h3>
+        <a href="{% url 'customer_transactions' %}" class="text-blue-600 hover:text-blue-800 text-sm font-medium">View All</a>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plate</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for transaction in recent_transactions %}
+          <tr>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              {{ transaction.timestamp|date:"M d, Y g:i A" }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+              {{ transaction.license_plate }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              ${{ transaction.toll_amount }}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                {% if transaction.status == 'COMPLETED' %}bg-green-100 text-green-800
+                {% elif transaction.status == 'PENDING' %}bg-yellow-100 text-yellow-800
+                {% elif transaction.status == 'FAILED' %}bg-red-100 text-red-800
+                {% else %}bg-gray-100 text-gray-800{% endif %}">
+                {{ transaction.status }}
+              </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+              {{ transaction.location }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Registered Vehicles -->
+  {% if user_plates %}
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Your Registered Vehicles</h3>
+        <a href="{% url 'manage_user_plates' %}" class="text-blue-600 hover:text-blue-800 text-sm font-medium">Manage</a>
+      </div>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for plate in user_plates %}
+        <div class="border rounded-lg p-4 {% if not plate.is_active %}bg-gray-50{% endif %}">
+          <div class="flex justify-between items-start">
+            <div>
+              <h4 class="font-medium text-gray-900">{{ plate.license_plate }}</h4>
+              <p class="text-sm text-gray-500">{{ plate.owner_name|default:"—" }}</p>
+              <p class="text-sm text-gray-500">{{ plate.phone_number }}</p>
+            </div>
+            <span class="px-2 py-1 text-xs rounded-full
+              {% if plate.is_active %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+              {% if plate.is_active %}Active{% else %}Inactive{% endif %}
+            </span>
+          </div>
+          {% if plate.plate_image %}
+          <div class="mt-3">
+            <img src="{{ plate.plate_image.url }}" alt="Plate Image" class="w-20 h-12 object-cover rounded">
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Add Funds Modal -->
+<div id="addFundsModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+  <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+    <div class="mt-3">
+      <h3 class="text-lg font-medium text-gray-900 mb-4">Add Funds to Account</h3>
+      <form id="addFundsForm">
+        {% csrf_token %}
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Amount (USD)</label>
+          <input type="number" id="amount" name="amount" min="1" max="1000" step="0.01" 
+                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                 placeholder="Enter amount" required>
+          <p class="text-xs text-gray-500 mt-1">Minimum: $1.00, Maximum: $1000.00</p>
+        </div>
+        
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+          <select id="paymentMethod" name="payment_method" 
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+            <option value="ECOCASH">EcoCash</option>
+            <option value="ZIPIT">ZiPiT</option>
+            <option value="VISA">Visa Card</option>
+            <option value="MASTERCARD">Mastercard</option>
+          </select>
+        </div>
+        
+        <div class="flex justify-end space-x-3">
+          <button type="button" onclick="closeAddFundsModal()" 
+                  class="px-4 py-2 text-gray-500 hover:text-gray-700">Cancel</button>
+          <button type="submit" 
+                  class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            Add Funds
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function openAddFundsModal() {
+  document.getElementById('addFundsModal').classList.remove('hidden');
+}
+
+function closeAddFundsModal() {
+  document.getElementById('addFundsModal').classList.add('hidden');
+  document.getElementById('addFundsForm').reset();
+}
+
+document.getElementById('addFundsBtn').addEventListener('click', openAddFundsModal);
+
+document.getElementById('addFundsForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  const amount = document.getElementById('amount').value;
+  const paymentMethod = document.getElementById('paymentMethod').value;
+  
+  if (!amount || amount <= 0) {
+    alert('Please enter a valid amount');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/add-funds/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+      },
+      body: JSON.stringify({
+        amount: parseFloat(amount),
+        payment_method: paymentMethod
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      alert(data.message);
+      location.reload(); // Refresh to show new balance
+    } else {
+      alert(data.error || 'Failed to add funds');
+    }
+  } catch (error) {
+    alert('Error processing payment: ' + error.message);
+  }
+});
+
+// Close modal when clicking outside
+document.getElementById('addFundsModal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closeAddFundsModal();
+  }
+});
+</script>
+{% endblock %}

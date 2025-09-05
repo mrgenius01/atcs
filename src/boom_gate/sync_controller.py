@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def trigger_gate_sync(transaction_id, vehicle_plate, open_duration=5):
     """
     Synchronous boom gate trigger for Django views
-    Runs the gate operation in a background thread
+    Runs the gate operation in a background thread AND updates WebSocket clients
     """
     def run_gate_operation():
         """Run gate operation with its own event loop"""
@@ -24,9 +24,27 @@ def trigger_gate_sync(transaction_id, vehicle_plate, open_duration=5):
             asyncio.set_event_loop(loop)
             
             async def gate_sequence():
-                """Complete gate operation sequence"""
+                """Complete gate operation sequence with WebSocket updates"""
                 try:
                     logger.info(f"Opening boom gate for transaction {transaction_id}, plate {vehicle_plate}")
+                    
+                    # Send WebSocket command to trigger frontend update
+                    try:
+                        from .broadcast_utils import trigger_gate_via_websocket, broadcast_gate_status_update
+                        
+                        # Trigger auto cycle via WebSocket
+                        await trigger_gate_via_websocket('auto_cycle', 
+                                                        open_duration=open_duration,
+                                                        transaction_id=transaction_id,
+                                                        vehicle_plate=vehicle_plate)
+                        
+                        # Broadcast initial status
+                        await broadcast_gate_status_update()
+                        
+                        logger.info("WebSocket gate command and status update sent to frontend")
+                    except Exception as ws_error:
+                        logger.warning(f"WebSocket command failed: {ws_error}")
+                        # Continue with local gate operation even if WebSocket fails
                     
                     # Play opening sound sequence
                     if sound_system.sound_enabled:
@@ -37,6 +55,12 @@ def trigger_gate_sync(transaction_id, vehicle_plate, open_duration=5):
                     if not success:
                         logger.error("Failed to open gate")
                         return False
+                    
+                    # Broadcast gate opened status
+                    try:
+                        await broadcast_gate_status_update()
+                    except:
+                        pass
                     
                     # Keep open for specified duration
                     logger.info(f"Gate open, waiting {open_duration} seconds...")
@@ -50,6 +74,13 @@ def trigger_gate_sync(transaction_id, vehicle_plate, open_duration=5):
                     success = await main_gate.close_gate()
                     if success:
                         logger.info(f"Boom gate cycle completed for {vehicle_plate}")
+                        
+                        # Broadcast final gate closed status
+                        try:
+                            await broadcast_gate_status_update()
+                        except:
+                            pass
+                            
                         return True
                     else:
                         logger.error("Failed to close gate")

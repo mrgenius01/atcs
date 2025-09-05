@@ -203,6 +203,28 @@ class BoomGateConsumer(AsyncWebsocketConsumer):
             'type': 'gate_status',
             'data': event['data']
         }))
+    
+    async def gate_command(self, event):
+        """Handle gate command from other parts of the system"""
+        try:
+            command = event['command']
+            data = event.get('data', {})
+            
+            logger.info(f"Received system gate command: {command}")
+            
+            if command == 'open_gate':
+                await self.handle_open_gate(data)
+            elif command == 'close_gate':
+                await self.handle_close_gate(data)
+            elif command == 'auto_cycle':
+                await self.handle_auto_cycle(data)
+            elif command == 'emergency_stop':
+                await self.handle_emergency_stop()
+            else:
+                logger.warning(f"Unknown system gate command: {command}")
+                
+        except Exception as e:
+            logger.error(f"Error processing system gate command: {str(e)}")
 
 
 # Function to send gate command from other parts of the system
